@@ -1,3 +1,18 @@
 <Solution>
-  <Project Path="MeetYourBuddy/MeetYourBuddy.csproj" />
+  <Folder Name="/ApiGateway/">
+    <Project Path="MeetYourBuddy.Gateway/MeetYourBuddy.Gateway.csproj" Id="b90ce149-7387-49d6-b6db-0386eff93923" />
+  </Folder>
+  <Folder Name="/Services/" />
+  <Folder Name="/Services/IdentityService/">
+    <Project Path="IdentityService.Application/IdentityService.Application.csproj" Id="df87ae1a-5059-4795-94a3-e1600d003096" />
+    <Project Path="IdentityService.Infrastructure/IdentityService.Infrastructure.csproj" Id="5950d7fd-4cec-4112-8425-7c218513dea9" />
+    <Project Path="IdentityService.Persistence/IdentityService.Persistence.csproj" Id="52b0e92c-d0a4-4e99-a46b-5b54dcd7d1fb" />
+    <Project Path="Services/IdentityService/IdentityService.API/IdentityService.API.csproj" Id="7f1c8826-04a1-449f-9e30-0e8404484ce8" />
+    <Project Path="Services/IdentityService/IdentityService.Domain/IdentityService.Domain.csproj" Id="02351667-8988-4da2-9b35-1f24b31039aa" />
+  </Folder>
+  <Folder Name="/Shared/">
+    <Project Path="Shared.Common/Shared.Common.csproj" Id="83db29c2-0eb5-4ae7-89c9-62c53f3c2bca" />
+    <Project Path="Shared.Contracts/Shared.Contracts.csproj" Id="2955b1f4-eac5-4a84-8dc3-b110b86a0723" />
+    <Project Path="Shared.Infrastructure/Shared.Infrastructure.csproj" Id="82d3375f-1b90-4eba-813a-a711f8d4d362" />
+  </Folder>
 </Solution>

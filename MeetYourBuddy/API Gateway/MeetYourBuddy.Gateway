@@ -1,0 +1,6 @@
+﻿namespace MeetYourBuddy.API_Gateway
+{
+    public class MeetYourBuddy
+    {
+    }
+}

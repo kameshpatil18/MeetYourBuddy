@@ -22,6 +22,7 @@
     <Folder Include="Features\Profile\" />
     <Folder Include="Infrastructure\Repositories\" />
     <Folder Include="Infrastructure\Services\" />
+    <Folder Include="Services\IdentityService\" />
   </ItemGroup>
 
 </Project>
