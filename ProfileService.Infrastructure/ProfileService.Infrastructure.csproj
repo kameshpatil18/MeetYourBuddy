@@ -1,0 +1,27 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+
+	<ItemGroup>
+		<PackageReference Include="Dapper" Version="2.1.72" />
+		<PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.5" />
+	</ItemGroup>
+
+
+	<ItemGroup>
+	  <ProjectReference Include="..\ProfileService.Application\ProfileService.Application.csproj" />
+	  <ProjectReference Include="..\ProfileService.Domain\ProfileService.Domain.csproj" />
+	  <ProjectReference Include="..\ProfileService.Persistence\ProfileService.Persistence.csproj" />
+	  <ProjectReference Include="..\Shared.Common\Shared.Common.csproj" />
+	</ItemGroup>
+
+
+	<ItemGroup>
+	  <Folder Include="Services\" />
+	</ItemGroup>
+</Project>

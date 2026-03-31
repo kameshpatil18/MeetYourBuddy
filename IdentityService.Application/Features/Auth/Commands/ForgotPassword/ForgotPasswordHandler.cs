@@ -34,9 +34,9 @@ namespace IdentityService.Application.Features.Auth.Commands.ForgotPassword
             }
 
             var token = Guid.NewGuid().ToString();
-
+            await _userRepository.SavePasswordResetToken(user.Id, token);
             var resetLink =
-                $"https://localhost:3000/reset-password?token={token}";
+                $"http://localhost:5265/reset-password?token={token}";
 
             var emailBody = $@"
                 <h3>Reset Password</h3>

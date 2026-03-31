@@ -10,6 +10,13 @@
     <Project Path="Services/IdentityService/IdentityService.API/IdentityService.API.csproj" Id="7f1c8826-04a1-449f-9e30-0e8404484ce8" />
     <Project Path="Services/IdentityService/IdentityService.Domain/IdentityService.Domain.csproj" Id="02351667-8988-4da2-9b35-1f24b31039aa" />
   </Folder>
+  <Folder Name="/Services/ProfileService/">
+    <Project Path="ProfileService.API/ProfileService.API.csproj" Id="cd49784e-c8ee-4f17-8b1c-0089a19eb985" />
+    <Project Path="ProfileService.Application/ProfileService.Application.csproj" Id="e154f894-04e0-44a5-a092-fe3ecefe0e04" />
+    <Project Path="ProfileService.Domain/ProfileService.Domain.csproj" Id="f60f212e-b10b-4669-b574-d9d0874d8607" />
+    <Project Path="ProfileService.Infrastructure/ProfileService.Infrastructure.csproj" Id="d25804f6-a961-42b0-9f39-670738d6b3a4" />
+    <Project Path="ProfileService.Persistence/ProfileService.Persistence.csproj" Id="a6fe22bd-6043-4ac1-9a18-7e656f2e037c" />
+  </Folder>
   <Folder Name="/Shared/">
     <Project Path="Shared.Common/Shared.Common.csproj" Id="83db29c2-0eb5-4ae7-89c9-62c53f3c2bca" />
     <Project Path="Shared.Contracts/Shared.Contracts.csproj" Id="2955b1f4-eac5-4a84-8dc3-b110b86a0723" />
