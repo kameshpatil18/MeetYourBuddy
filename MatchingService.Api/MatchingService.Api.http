@@ -1,0 +1,6 @@
+@MatchingService.Api_HostAddress = http://localhost:5138
+
+GET {{MatchingService.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

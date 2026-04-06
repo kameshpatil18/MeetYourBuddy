@@ -31,7 +31,11 @@ namespace ProfileService.Infrastructure.Repositories
                     profile.State,
                     profile.Country,
                     profile.Bio,
-                    profile.ProfileImage
+                    profile.ProfileImage,
+                    profile.IsActive,
+                    profile.CreatedDate,
+                    profile.Latitude,
+                    profile.Longitude
                 },
                 commandType: CommandType.StoredProcedure);
 
@@ -57,7 +61,11 @@ namespace ProfileService.Infrastructure.Repositories
                     profile.State,
                     profile.Country,
                     profile.Bio,
-                    profile.ProfileImage
+                    profile.ProfileImage,
+                    profile.IsActive,
+                    profile.UpdatedDate,
+                    profile.Latitude,
+                    profile.Longitude
                 },
                 commandType: CommandType.StoredProcedure);
 

@@ -3,12 +3,36 @@
     <Project Path="MeetYourBuddy.Gateway/MeetYourBuddy.Gateway.csproj" Id="b90ce149-7387-49d6-b6db-0386eff93923" />
   </Folder>
   <Folder Name="/Services/" />
+  <Folder Name="/Services/CategoryService/">
+    <Project Path="CategoryService.Api/CategoryService.Api.csproj" Id="93b6c24e-3946-4389-ab2c-42e501b1062b" />
+    <Project Path="CategoryService.Application/CategoryService.Application.csproj" Id="5af3b9b6-fd96-4a04-8a52-7d28c0816a72" />
+    <Project Path="CategoryService.Domain/CategoryService.Domain.csproj" Id="61fde46b-e404-4507-8d5e-a3dd00224c8d" />
+    <Project Path="CategoryService.Infrastructure/CategoryService.Infrastructure.csproj" Id="9674018f-deb5-48d1-90d9-02907cc835e0" />
+    <Project Path="CategoryService.Persistence/CategoryService.Persistence.csproj" Id="83edac59-00d6-470f-9563-fa88fe30d121" />
+  </Folder>
+  <Folder Name="/Services/ChatService/">
+    <Project Path="ChatService.Api/ChatService.Api.csproj" Id="1f0d6d68-83c4-423b-8912-e2f1ffb8bee3" />
+  </Folder>
+  <Folder Name="/Services/DiscoveryService/">
+    <Project Path="DiscoveryService.Api/DiscoveryService.Api.csproj" Id="5c5c6719-2c5d-4213-9d17-6fdf83ed1187" />
+    <Project Path="DiscoveryService.Application/DiscoveryService.Application.csproj" Id="d0f4f478-eaee-493c-b8ba-3c9868877b2b" />
+    <Project Path="DiscoveryService.Domain/DiscoveryService.Domain.csproj" Id="edde7585-3ffd-44d6-ae6f-31c90c0eca37" />
+    <Project Path="DiscoveryService.Infrastructure/DiscoveryService.Infrastructure.csproj" Id="284b5901-972c-4dfd-8d64-217ca86c01df" />
+    <Project Path="DiscoveryService.Persistance/DiscoveryService.Persistance.csproj" Id="8457cfbe-c22c-460e-93f3-c8df6982fc37" />
+  </Folder>
   <Folder Name="/Services/IdentityService/">
     <Project Path="IdentityService.Application/IdentityService.Application.csproj" Id="df87ae1a-5059-4795-94a3-e1600d003096" />
     <Project Path="IdentityService.Infrastructure/IdentityService.Infrastructure.csproj" Id="5950d7fd-4cec-4112-8425-7c218513dea9" />
     <Project Path="IdentityService.Persistence/IdentityService.Persistence.csproj" Id="52b0e92c-d0a4-4e99-a46b-5b54dcd7d1fb" />
     <Project Path="Services/IdentityService/IdentityService.API/IdentityService.API.csproj" Id="7f1c8826-04a1-449f-9e30-0e8404484ce8" />
     <Project Path="Services/IdentityService/IdentityService.Domain/IdentityService.Domain.csproj" Id="02351667-8988-4da2-9b35-1f24b31039aa" />
+  </Folder>
+  <Folder Name="/Services/MatchingService/">
+    <Project Path="MatchingService.Api/MatchingService.Api.csproj" Id="ec2bf9b2-8be5-4459-882f-88957fc38b7a" />
+    <Project Path="MatchingService.Application/MatchingService.Application.csproj" Id="41217d24-6b4a-4af3-bab6-7f65540c659d" />
+    <Project Path="MatchingService.Domain/MatchingService.Domain.csproj" Id="99a42b33-974a-48c5-a420-74db319b7949" />
+    <Project Path="MatchingService.Infrastructure/MatchingService.Infrastructure.csproj" Id="802c0278-0e71-42f6-b6ca-fe2ec88ffb0f" />
+    <Project Path="MatchingService.Persistance/MatchingService.Persistance.csproj" Id="cd3033f1-a510-4832-bc35-52ebfe7c0b0a" />
   </Folder>
   <Folder Name="/Services/ProfileService/">
     <Project Path="ProfileService.API/ProfileService.API.csproj" Id="cd49784e-c8ee-4f17-8b1c-0089a19eb985" />
