@@ -12,6 +12,10 @@
   </Folder>
   <Folder Name="/Services/ChatService/">
     <Project Path="ChatService.Api/ChatService.Api.csproj" Id="1f0d6d68-83c4-423b-8912-e2f1ffb8bee3" />
+    <Project Path="ChatService.Application/ChatService.Application.csproj" Id="8b796ef2-853c-48ee-9e98-a41c843fb613" />
+    <Project Path="ChatService.Domain/ChatService.Domain.csproj" Id="487054fb-e28f-4025-8e26-d8e48d886a48" />
+    <Project Path="ChatService.Infrastructure/ChatService.Infrastructure.csproj" Id="bde4e373-d1d1-4d49-87fc-027da9ccd976" />
+    <Project Path="ChatService.Persistance/ChatService.Persistance.csproj" Id="54f27fff-c5ed-48f7-beae-9b5193554494" />
   </Folder>
   <Folder Name="/Services/DiscoveryService/">
     <Project Path="DiscoveryService.Api/DiscoveryService.Api.csproj" Id="5c5c6719-2c5d-4213-9d17-6fdf83ed1187" />
