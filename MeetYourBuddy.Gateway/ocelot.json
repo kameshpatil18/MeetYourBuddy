@@ -6,11 +6,12 @@
       "DownstreamHostAndPorts": [
         {
           "Host": "localhost",
-          "Port": 7001
+          "Port": 7030
         }
       ],
       "UpstreamPathTemplate": "/gateway/auth/{everything}",
-      "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ]
+      "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ],
+      "SwaggerKey": "identity"
     },
     {
       "DownstreamPathTemplate": "/api/profile/{everything}",
@@ -18,26 +19,60 @@
       "DownstreamHostAndPorts": [
         {
           "Host": "localhost",
-          "Port": 7002
+          "Port": 7235
         }
       ],
       "UpstreamPathTemplate": "/gateway/profile/{everything}",
-      "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ]
+      "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ],
+      "SwaggerKey": "profile"
     },
     {
-      "DownstreamPathTemplate": "/api/matching/{everything}",
+      "DownstreamPathTemplate": "/api/category/{everything}",
       "DownstreamScheme": "https",
       "DownstreamHostAndPorts": [
         {
           "Host": "localhost",
-          "Port": 7003
+          "Port": 7093
         }
       ],
-      "UpstreamPathTemplate": "/gateway/matching/{everything}",
-      "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ]
+      "UpstreamPathTemplate": "/gateway/category/{everything}",
+      "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ],
+      "SwaggerKey": "categories"
+    }
+  ],
+  "SwaggerEndPoints": [
+    {
+      "Key": "identity",
+      "Config": [
+        {
+          "Name": "Identity Service",
+          "Version": "v1",
+          "Url": "https://localhost:7030/swagger/v1/swagger.json"
+        }
+      ]
+    },
+    {
+      "Key": "profile",
+      "Config": [
+        {
+          "Name": "Profile Service",
+          "Version": "v1",
+          "Url": "https://localhost:7235/swagger/v1/swagger.json"
+        }
+      ]
+    },
+    {
+      "Key": "categories",
+      "Config": [
+        {
+          "Name": "Categories Service",
+          "Version": "v1",
+          "Url": "https://localhost:7093/swagger/v1/swagger.json"
+        }
+      ]
     }
   ],
   "GlobalConfiguration": {
-    "BaseUrl": "https://localhost:5000"
+    "BaseUrl": "https://localhost:7152"
   }
 }

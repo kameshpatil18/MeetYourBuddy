@@ -52,7 +52,7 @@ namespace IdentityService.Application.Features.Auth.Commands.RegisterUser
 
             await _userRepository.SaveEmailVerificationToken(id, token);
 
-            var link = $"http://localhost:5265/api/auth/verify-email?token={token}";
+            var link = $"https://localhost:7030/api/auth/verify-email?token={token}";
 
             try
             {
