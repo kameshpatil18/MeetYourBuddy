@@ -1,4 +1,5 @@
 
+using DiscoveryService.Application.Features.Discovery.Queries;
 using DiscoveryService.Application.Interfaces;
 using DiscoveryService.Infrastructure.Repositories;
 using DiscoveryService.Persistence.Contexts;
@@ -28,7 +29,7 @@ builder.Services.AddSwaggerGen(options =>
 {
     options.SwaggerDoc("v1", new OpenApiInfo
     {
-        Title = "Category Service API",
+        Title = "Discovery Service API",
         Version = "v1"
     });
 
@@ -147,6 +148,11 @@ builder.Services.AddCors(options =>
 });
 
 #endregion
+
+builder.Services.AddMediatR(cfg =>
+{
+    cfg.RegisterServicesFromAssembly(typeof(GerUserCategoryFilterQuery).Assembly);
+});
 
 var app = builder.Build();
 

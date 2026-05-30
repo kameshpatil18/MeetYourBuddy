@@ -1,5 +1,6 @@
 ﻿using Dapper;
 using DiscoveryService.Application.Interfaces;
+using DiscoveryService.Application.Response;
 using DiscoveryService.Domain.Entities;
 using DiscoveryService.Persistence.Contexts;
 using Shared.Common.Models;
@@ -51,6 +52,18 @@ namespace DiscoveryService.Infrastructure.Repositories
                 Message = "Nearby users fetched successfully",
                 Data = result
             };
+        }
+        public async Task<List<UserCategoryFilterResponse>> GetUserCategoryFilterMetaData(string filterName)
+        {
+            var result = await _connection.QueryAsync<UserCategoryFilterResponse>(
+                "Discovery.GetUserCategoryFilterMetaData",
+                new
+                {
+                    FilterName = filterName
+                },
+                commandType: CommandType.StoredProcedure);
+
+            return result.ToList();
         }
     }
 }

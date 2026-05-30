@@ -1,3 +1,4 @@
+using DiscoveryService.Application.Features.Discovery.Queries;
 using DiscoveryService.Application.Features.Discovery.Queries.GetNearbyUsers;
 using DiscoveryService.Application.Features.Discovery.Queries.GetUsersByCategory;
 using MediatR;
@@ -39,6 +40,15 @@ namespace DiscoveryService.API.Controllers
                 UserId = User.GetUserId()
             };
 
+            return Ok(await _mediator.Send(query));
+        }
+        [HttpGet("filter")]
+        public async Task<IActionResult> GerUserCategoryFilter([FromQuery] string filterName)
+        {
+            var query = new GerUserCategoryFilterQuery
+            {
+                FilterName = filterName
+            };
             return Ok(await _mediator.Send(query));
         }
     }
