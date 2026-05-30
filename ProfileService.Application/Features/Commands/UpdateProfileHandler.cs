@@ -27,7 +27,9 @@ namespace ProfileService.Application.Features.Profile.Commands.UpdateProfile
                 State = request.State,
                 Country = request.Country,
                 Bio = request.Bio,
-                ProfileImage = request.ProfileImage
+                ProfileImage = request.ProfileImage,
+                Latitude=request.Latitude,
+                Longitude=request.Longitude
             };
 
             return await _profileRepository.UpdateProfileAsync(profile);

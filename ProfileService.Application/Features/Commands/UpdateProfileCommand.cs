@@ -15,5 +15,8 @@ namespace ProfileService.Application.Features.Profile.Commands.UpdateProfile
         public string? Country { get; set; }
         public string? Bio { get; set; }
         public string? ProfileImage { get; set; }
+
+        public decimal? Latitude { get; set; }
+        public decimal? Longitude { get; set; }
     }
 }
