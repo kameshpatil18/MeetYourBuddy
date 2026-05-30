@@ -10,6 +10,7 @@ using System.Data;
 using System.IdentityModel.Tokens.Jwt;
 using System.Text;
 using MatchingService.Persistance.Contexts;
+using MatchingService.Application;
 var builder = WebApplication.CreateBuilder(args);
 
 #region Services
@@ -26,7 +27,7 @@ builder.Services.AddSwaggerGen(options =>
 {
     options.SwaggerDoc("v1", new OpenApiInfo
     {
-        Title = "Category Service API",
+        Title = "Matching Service API",
         Version = "v1"
     });
 
@@ -145,7 +146,14 @@ builder.Services.AddCors(options =>
 });
 
 #endregion
+#region MediatR
 
+builder.Services.AddMediatR(cfg =>
+{
+    cfg.RegisterServicesFromAssembly(typeof(ApplicationAssemblyReference).Assembly);
+});
+
+#endregion
 var app = builder.Build();
 
 #region Middleware

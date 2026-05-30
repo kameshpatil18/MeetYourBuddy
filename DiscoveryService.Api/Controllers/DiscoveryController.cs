@@ -2,6 +2,7 @@ using DiscoveryService.Application.Features.Discovery.Queries;
 using DiscoveryService.Application.Features.Discovery.Queries.GetNearbyUsers;
 using DiscoveryService.Application.Features.Discovery.Queries.GetUsersByCategory;
 using MediatR;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Shared.Common.Extensions;
@@ -10,7 +11,7 @@ namespace DiscoveryService.API.Controllers
 {
     [ApiController]
     [Route("api/discovery")]
-    [Authorize]
+    [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
     public class DiscoveryController : ControllerBase
     {
         private readonly IMediator _mediator;
