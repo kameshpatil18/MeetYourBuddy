@@ -37,9 +37,6 @@ namespace ProfileService.API.Controllers
         [HttpPut("update")]
         public async Task<IActionResult> Update(UpdateProfileCommand command)
         {
-            var userId = User.FindFirst("sub")?.Value;
-
-            command.UserId = int.Parse(userId);
 
             var result = await _mediator.Send(command);
 
