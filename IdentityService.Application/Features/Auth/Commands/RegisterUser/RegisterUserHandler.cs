@@ -52,14 +52,14 @@ namespace IdentityService.Application.Features.Auth.Commands.RegisterUser
 
             await _userRepository.SaveEmailVerificationToken(id, token);
 
-            var link = $"https://localhost:7030/api/auth/verify-email?token={token}";
+            var verifyUrl = $"http://localhost:3000/verify-email?token={token}";
 
             try
             {
                 await _emailService.SendEmailAsync(
                     user.Email,
                     "Verify Email",
-                    $"Click here to verify your email: {link}"
+                    $"Click here to verify your email: {verifyUrl}"
                 );
             }
             catch (Exception ex)
