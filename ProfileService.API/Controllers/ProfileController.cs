@@ -46,15 +46,13 @@ namespace ProfileService.API.Controllers
             return Ok(result);
         }
 
-        [HttpGet("me")]
-        public async Task<IActionResult> Get()
+        [HttpGet("me/{userId}")]
+        public async Task<IActionResult> Get(int userId)
         {
-            var userId = User.FindFirst("sub")?.Value;
-
             var result = await _mediator.Send(
                 new GetProfileQuery
                 {
-                    UserId = int.Parse(userId)
+                    UserId = userId
                 });
 
             return Ok(result);
