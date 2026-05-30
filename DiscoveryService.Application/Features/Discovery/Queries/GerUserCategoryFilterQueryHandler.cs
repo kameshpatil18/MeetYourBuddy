@@ -25,6 +25,7 @@ namespace DiscoveryService.Application.Features.Discovery.Queries
         {
             return await _repository.GetUserCategoryFilterMetaData(request.FilterName);
         }
+
     }
 
 }

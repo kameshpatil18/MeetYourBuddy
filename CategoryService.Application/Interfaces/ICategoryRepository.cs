@@ -7,5 +7,6 @@ namespace CategoryService.Application.Interfaces
         Task<ResponseModel> GetCategoriesAsync();
 
         Task<ResponseModel> SaveUserCategoriesAsync(int userId, List<int> categoryIds);
+        Task<ResponseModel> GetUserategoriesPrefrences(int userId);
     }
 }

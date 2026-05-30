@@ -1,5 +1,6 @@
 using CategoryService.Application.Features.Category.Commands.SaveUserCategories;
 using CategoryService.Application.Features.Category.Queries.GetCategories;
+using CategoryService.Application.Queries;
 using MediatR;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
@@ -32,6 +33,14 @@ namespace CategoryService.API.Controllers
         {
             command.UserId = User.GetUserId();
             return Ok(await _mediator.Send(command));
+        }
+        [HttpGet("get-user-category")]
+        public async Task<IActionResult> GetUserategoriesPrefrences([FromQuery] int userId)
+        {
+            return Ok(await _mediator.Send(new GetUserategoriesPrefrencesQuery
+            {
+                UserId = userId
+            }));
         }
     }
 }

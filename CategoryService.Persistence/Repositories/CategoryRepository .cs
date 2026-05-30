@@ -1,5 +1,6 @@
-﻿using Dapper;
-using CategoryService.Application.Interfaces;
+﻿using CategoryService.Application.Interfaces;
+using CategoryService.Application.Response;
+using Dapper;
 using Shared.Common.Models;
 using System.Data;
 
@@ -47,6 +48,22 @@ namespace CategoryService.Persistence.Repositories
             {
                 Code = 1,
                 Message = "Categories saved successfully"
+            };
+        }
+        public async Task<ResponseModel> GetUserategoriesPrefrences(int userId) {
+            var result = await _db.QueryAsync<GetUserCategoryPrefrencesModel>(
+               "Category.GetUserategoriesPrefrences",
+               new { 
+                   UserId = userId,
+               },
+               commandType: CommandType.StoredProcedure
+           );
+
+            return new ResponseModel
+            {
+                Code = 1,
+                Message = "Categories fetched successfully",
+                Data = result
             };
         }
     }
