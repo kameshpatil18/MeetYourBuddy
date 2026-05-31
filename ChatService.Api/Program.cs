@@ -1,5 +1,11 @@
+
+using ChatService.Application;
+using MatchingService.Application.Interfaces;
+using MatchingService.Infrastructure.Repositories;
+using MatchingService.Persistance.Contexts;
 using MediatR;
 using MeetYourBuddy.ChatService.API.Hubs;
+using MeetYourBuddy.ChatService.Application;
 using MeetYourBuddy.ChatService.Application.Interfaces;
 using MeetYourBuddy.ChatService.Persistence.Repositories;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -8,8 +14,6 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Shared.Common.Models;
 using System.Data;
-using System.IdentityModel.Tokens.Jwt;
-using System.Reflection;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -39,7 +43,7 @@ builder.Services.AddSwaggerGen(options =>
         Scheme = "bearer",
         BearerFormat = "JWT",
         In = ParameterLocation.Header,
-        Description = "Enter Bearer token"
+        Description = "Enter JWT token only. Do not add Bearer manually if Swagger already adds it."
     });
 
     options.AddSecurityRequirement(new OpenApiSecurityRequirement
@@ -53,7 +57,7 @@ builder.Services.AddSwaggerGen(options =>
                     Id = "Bearer"
                 }
             },
-            new List<string>()
+            Array.Empty<string>()
         }
     });
 });
@@ -63,8 +67,7 @@ builder.Services.AddSwaggerGen(options =>
 #region MediatR
 
 builder.Services.AddMediatR(cfg =>
-    cfg.RegisterServicesFromAssembly(
-        Assembly.Load("MeetYourBuddy.ChatService.Application")));
+    cfg.RegisterServicesFromAssembly(typeof(ApplicationAssemblyReference).Assembly));
 
 #endregion
 
@@ -73,82 +76,108 @@ builder.Services.AddMediatR(cfg =>
 builder.Services.AddScoped<IDbConnection>(sp =>
     new SqlConnection(builder.Configuration.GetConnectionString("DefaultConnection")));
 
+builder.Services.AddSingleton<DapperContext>();
+
 #endregion
 
 #region Repository
 
+builder.Services.AddScoped<IMatchingRepository, MatchingRepository>();
 builder.Services.AddScoped<IChatRepository, ChatRepository>();
 
 #endregion
 
 #region JWT
 
-builder.Services.Configure<JwtSettings>(
-    builder.Configuration.GetSection("JwtSettings"));
+var jwtSettings = builder.Configuration.GetSection("JwtSettings");
 
-var jwtSettings = builder.Configuration
-    .GetSection("JwtSettings")
-    .Get<JwtSettings>()!;
+var key = jwtSettings["Key"];
+var issuer = jwtSettings["Issuer"];
+var audience = jwtSettings["Audience"];
 
-var key = Encoding.UTF8.GetBytes(jwtSettings.Key);
-
-JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
-
-builder.Services.AddAuthentication(options =>
+if (string.IsNullOrWhiteSpace(key))
 {
-    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-})
-.AddJwtBearer(options =>
+    throw new Exception("JWT Key is missing in appsettings.json. Expected JwtSettings:Key");
+}
+
+if (string.IsNullOrWhiteSpace(issuer))
 {
-    options.RequireHttpsMetadata = false;
-    options.SaveToken = true;
+    throw new Exception("JWT Issuer is missing in appsettings.json. Expected JwtSettings:Issuer");
+}
 
-    options.TokenValidationParameters = new TokenValidationParameters
+if (string.IsNullOrWhiteSpace(audience))
+{
+    throw new Exception("JWT Audience is missing in appsettings.json. Expected JwtSettings:Audience");
+}
+
+builder.Services
+    .AddAuthentication(options =>
     {
-        ValidateIssuer = true,
-        ValidateAudience = true,
-        ValidateIssuerSigningKey = true,
-        ValidateLifetime = true,
-
-        ValidIssuer = jwtSettings.Issuer,
-        ValidAudience = jwtSettings.Audience,
-
-        IssuerSigningKey = new SymmetricSecurityKey(key),
-
-        ClockSkew = TimeSpan.Zero,
-
-        NameClaimType = "sub",
-        RoleClaimType = "role"
-    };
-
-    options.Events = new JwtBearerEvents
+        options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+        options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+        options.DefaultScheme = JwtBearerDefaults.AuthenticationScheme;
+    })
+    .AddJwtBearer(options =>
     {
-        OnAuthenticationFailed = context =>
-        {
-            Console.WriteLine("Auth Failed: " + context.Exception.Message);
-            return Task.CompletedTask;
-        },
-        OnTokenValidated = context =>
-        {
-            Console.WriteLine("Token Validated");
-            return Task.CompletedTask;
-        },
-        OnMessageReceived = context =>
-        {
-            var accessToken = context.Request.Query["access_token"];
-            var path = context.HttpContext.Request.Path;
+        options.RequireHttpsMetadata = false;
+        options.SaveToken = true;
 
-            if (!string.IsNullOrEmpty(accessToken) &&
-                path.StartsWithSegments("/chatHub"))
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes(key)
+            ),
+
+            ValidateIssuer = true,
+            ValidIssuer = issuer,
+
+            ValidateAudience = true,
+            ValidAudience = audience,
+
+            ValidateLifetime = true,
+            ClockSkew = TimeSpan.Zero
+        };
+
+        options.Events = new JwtBearerEvents
+        {
+            OnAuthenticationFailed = context =>
             {
-                context.Token = accessToken;
-            }
+                Console.WriteLine("JWT Authentication Failed:");
+                Console.WriteLine(context.Exception.Message);
+                return Task.CompletedTask;
+            },
 
-            return Task.CompletedTask;
-        }
-    };
-});
+            OnTokenValidated = context =>
+            {
+                Console.WriteLine("JWT Token Validated Successfully");
+                return Task.CompletedTask;
+            },
+
+            OnMessageReceived = context =>
+            {
+                var accessToken = context.Request.Query["access_token"];
+                var path = context.HttpContext.Request.Path;
+
+                // SignalR sends token in query string
+                if (!string.IsNullOrWhiteSpace(accessToken) &&
+                    path.StartsWithSegments("/chatHub"))
+                {
+                    context.Token = accessToken;
+                }
+
+                return Task.CompletedTask;
+            },
+
+            OnChallenge = context =>
+            {
+                Console.WriteLine("JWT Challenge Error:");
+                Console.WriteLine(context.Error);
+                Console.WriteLine(context.ErrorDescription);
+                return Task.CompletedTask;
+            }
+        };
+    });
 
 builder.Services.AddAuthorization();
 
@@ -158,13 +187,18 @@ builder.Services.AddAuthorization();
 
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowAll",
-        policy =>
-        {
-            policy.AllowAnyOrigin()
-                  .AllowAnyMethod()
-                  .AllowAnyHeader();
-        });
+    options.AddPolicy("AllowFrontend", policy =>
+    {
+        policy
+            .WithOrigins(
+                "https://localhost:7250",
+                "http://localhost:3000",
+                "https://localhost:3000"
+            )
+            .AllowAnyHeader()
+            .AllowAnyMethod()
+            .AllowCredentials();
+    });
 });
 
 #endregion
@@ -181,7 +215,9 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-app.UseCors("AllowAll");
+app.UseRouting();
+
+app.UseCors("AllowFrontend");
 
 app.UseAuthentication();
 app.UseAuthorization();
