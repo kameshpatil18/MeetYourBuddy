@@ -18,6 +18,8 @@
 	<ItemGroup>
 	  <ProjectReference Include="..\ChatService.Application\ChatService.Application.csproj" />
 	  <ProjectReference Include="..\ChatService.Persistance\ChatService.Persistance.csproj" />
+	  <ProjectReference Include="..\MatchingService.Application\MatchingService.Application.csproj" />
+	  <ProjectReference Include="..\MatchingService.Infrastructure\MatchingService.Infrastructure.csproj" />
 	  <ProjectReference Include="..\Shared.Common\Shared.Common.csproj" />
 	</ItemGroup>
 

@@ -1,7 +1,6 @@
 ﻿namespace ChatService.Application
 {
-    public class Class1
+    public sealed class ApplicationAssemblyReference
     {
-
     }
 }
