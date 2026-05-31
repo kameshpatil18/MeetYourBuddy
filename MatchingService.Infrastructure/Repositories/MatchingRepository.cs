@@ -1,8 +1,9 @@
-﻿using MatchingService.Application.Interfaces;
+﻿using Dapper;
+using MatchingService.Application.Features.Matching.Response;
+using MatchingService.Application.Interfaces;
 using MatchingService.Persistance.Contexts;
 using Shared.Common.Models;
 using System.Data;
-using Dapper;
 namespace MatchingService.Infrastructure.Repositories
 {
     public class MatchingRepository : IMatchingRepository
@@ -58,6 +59,22 @@ namespace MatchingService.Infrastructure.Repositories
                 "Matching.RejectMatchRequest",
                 new { RequestId = requestId },
                 commandType: CommandType.StoredProcedure);
+        }
+        public async Task<ResponseModel> GetPendingRequest(int userId)
+        {
+            var result = await _connection.QueryAsync<GetPendingRequestResponse>(
+                "Matching.GetNotification",
+                new { UserId = userId },
+                commandType: CommandType.StoredProcedure);
+               
+            var userList = result.ToList();
+            return new ResponseModel
+            {
+                Code = 1,
+                Message = "Matches fetched successfully",
+                Data = userList,
+                TotalCount = userList.Count()
+            };
         }
     }
 }

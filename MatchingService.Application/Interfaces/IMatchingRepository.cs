@@ -11,5 +11,6 @@ namespace MatchingService.Application.Interfaces
         Task<ResponseModel> RejectRequestAsync(int requestId);
 
         Task<ResponseModel> GetMatchesAsync(int userId);
+        Task<ResponseModel> GetPendingRequest(int userId);
     }
 }

@@ -12,10 +12,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="Features\Matching\Queries\" />
-  </ItemGroup>
-
-  <ItemGroup>
 	  <PackageReference Include="Dapper" Version="2.1.79" />
 	  <PackageReference Include="MediatR" Version="14.1.0" />
 	  <PackageReference Include="MediatR.Extensions.Microsoft.DependencyInjection" Version="11.1.0" />

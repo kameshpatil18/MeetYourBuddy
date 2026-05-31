@@ -1,6 +1,7 @@
 using MatchingService.Application.Features.Matching.Commands.AcceptRequest;
 using MatchingService.Application.Features.Matching.Commands.RejectRequest;
 using MatchingService.Application.Features.Matching.Commands.SendRequest;
+using MatchingService.Application.Features.Matching.Queries;
 using MatchingService.Application.Features.Matching.Queries.GetMatches;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
@@ -50,6 +51,12 @@ namespace MatchingService.API.Controllers
             };
 
             return Ok(await _mediator.Send(query));
+        }
+        [HttpGet("get-pending-request")]
+        public async Task<IActionResult> GetPendingRequest([FromQuery] int UserId)
+        {
+          
+            return Ok(await _mediator.Send(new GetPendingRequestQuery(User.GetUserId())));
         }
     }
 }
