@@ -1,6 +1,7 @@
 using DiscoveryService.Application.Features.Discovery.Queries;
 using DiscoveryService.Application.Features.Discovery.Queries.GetNearbyUsers;
 using DiscoveryService.Application.Features.Discovery.Queries.GetUsersByCategory;
+using DiscoveryService.Application.Features.Request;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -20,15 +21,10 @@ namespace DiscoveryService.API.Controllers
             _mediator = mediator;
         }
 
-        [HttpGet("category/{categoryId}")]
-        public async Task<IActionResult> GetUsersByCategory(int categoryId)
+        [HttpPost("category-search")]
+        public async Task<IActionResult> GetUsersByCategory([FromBody] GetUserRequest request)
         {
-            var query = new GetUsersByCategoryQuery
-            {
-                CategoryId = categoryId,
-                UserId = User.GetUserId()
-            };
-
+            var query = new GetUsersByCategoryQuery(request);
             return Ok(await _mediator.Send(query));
         }
 

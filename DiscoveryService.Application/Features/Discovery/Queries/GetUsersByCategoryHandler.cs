@@ -18,10 +18,7 @@ namespace DiscoveryService.Application.Features.Discovery.Queries.GetUsersByCate
             GetUsersByCategoryQuery request,
             CancellationToken cancellationToken)
         {
-            return await _repository.GetUsersByCategoryAsync(
-                request.UserId,
-                request.CategoryId
-            );
+            return await _repository.GetUsersByCategoryAsync(request.Request);
         }
     }
 }   

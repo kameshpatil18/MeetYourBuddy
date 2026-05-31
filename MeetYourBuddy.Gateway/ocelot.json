@@ -38,6 +38,19 @@
       "UpstreamPathTemplate": "/gateway/category/{everything}",
       "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ],
       "SwaggerKey": "categories"
+    },
+    {
+      "DownstreamPathTemplate": "/api/discovery/{everything}",
+      "DownstreamScheme": "https",
+      "DownstreamHostAndPorts": [
+        {
+          "Host": "localhost",
+          "Port": 7111
+        }
+      ],
+      "UpstreamPathTemplate": "/gateway/discovery/{everything}",
+      "UpstreamHttpMethod": [ "GET", "POST", "PUT", "DELETE" ],
+      "SwaggerKey": "discovery"
     }
   ],
   "SwaggerEndPoints": [
@@ -68,6 +81,16 @@
           "Name": "Categories Service",
           "Version": "v1",
           "Url": "https://localhost:7093/swagger/v1/swagger.json"
+        }
+      ]
+    },
+    {
+      "Key": "discovery",
+      "Config": [
+        {
+          "Name": "discovery Service",
+          "Version": "v1",
+          "Url": "https://localhost:7011/swagger/v1/swagger.json"
         }
       ]
     }
