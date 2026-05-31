@@ -27,13 +27,12 @@ namespace DiscoveryService.Infrastructure.Repositories
                                          UserId = request.UserId,
                                          CategoriesId = JsonConvert.SerializeObject(request.CatergoriesId),
                                          Search = request.Search,
-                                         Filters = JsonConvert.SerializeObject(request.Filters),
+                                         Filters = request.Filters == null ? null : JsonConvert.SerializeObject(request.Filters),
                                          PageNumber = request.PageNumber,
                                          PageSize = request.PageSize
                                      },
                                      commandType: CommandType.StoredProcedure);
 
-            var totalCount = await result.ReadFirstAsync<int>();
 
             var users = (await result.ReadAsync<GetUserCatergoryResponse>()).ToList();
 
@@ -46,7 +45,7 @@ namespace DiscoveryService.Infrastructure.Repositories
                 Code = 1,
                 Message = "Users fetched successfully",
                 Data = pagedUsers,
-                TotalCount = totalCount,
+                TotalCount = users.Count(),
 
             };
         }

@@ -8,8 +8,8 @@ namespace DiscoveryService.Application.Features.Request
     {
         public int UserId { get; set; }
         public List<int> CatergoriesId { get; set; }
-        public string Search { get; set; }
-        public List<UserFilter> Filters { get; set; }
+        public string? Search { get; set; } = null;
+        public List<UserFilter>? Filters { get; set; } = null;
         public int PageNumber { get; set; }
         public int PageSize { get; set; }
     }
