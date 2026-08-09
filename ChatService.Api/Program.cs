@@ -1,9 +1,11 @@
-
 using ChatService.Application;
+using ChatService.Application.Interfaces;
 using MatchingService.Application.Interfaces;
 using MatchingService.Infrastructure.Repositories;
 using MatchingService.Persistance.Contexts;
 using MediatR;
+using MeetYourBuddy.ChatService.Api.Services;
+using MeetYourBuddy.ChatService.API.Configuration;
 using MeetYourBuddy.ChatService.API.Hubs;
 using MeetYourBuddy.ChatService.Application;
 using MeetYourBuddy.ChatService.Application.Interfaces;
@@ -22,7 +24,15 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddHttpClient();
 builder.Services.AddSignalR();
+
+builder.Services.AddHttpClient(
+    "Ollama",
+    client =>
+    {
+        client.Timeout = TimeSpan.FromMinutes(3);
+    });
 
 #endregion
 
@@ -43,7 +53,7 @@ builder.Services.AddSwaggerGen(options =>
         Scheme = "bearer",
         BearerFormat = "JWT",
         In = ParameterLocation.Header,
-        Description = "Enter JWT token only. Do not add Bearer manually if Swagger already adds it."
+        Description = "Enter JWT token only. Swagger will add Bearer automatically."
     });
 
     options.AddSecurityRequirement(new OpenApiSecurityRequirement
@@ -73,7 +83,7 @@ builder.Services.AddMediatR(cfg =>
 
 #region Database
 
-builder.Services.AddScoped<IDbConnection>(sp =>
+builder.Services.AddScoped<IDbConnection>(_ =>
     new SqlConnection(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 builder.Services.AddSingleton<DapperContext>();
@@ -84,6 +94,19 @@ builder.Services.AddSingleton<DapperContext>();
 
 builder.Services.AddScoped<IMatchingRepository, MatchingRepository>();
 builder.Services.AddScoped<IChatRepository, ChatRepository>();
+
+#endregion
+
+#region OpenAI / FitBot
+
+builder.Services.Configure<OpenAiOptions>(
+    builder.Configuration.GetSection("OpenAI")
+);
+
+builder.Services.AddHttpClient<IOpenAiFitnessService, OpenAiFitnessService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(45);
+});
 
 #endregion
 
@@ -159,7 +182,6 @@ builder.Services
                 var accessToken = context.Request.Query["access_token"];
                 var path = context.HttpContext.Request.Path;
 
-                // SignalR sends token in query string
                 if (!string.IsNullOrWhiteSpace(accessToken) &&
                     path.StartsWithSegments("/chatHub"))
                 {
