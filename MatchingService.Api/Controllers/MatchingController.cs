@@ -31,8 +31,18 @@ namespace MatchingService.API.Controllers
         }
 
         [HttpPost("accept")]
-        public async Task<IActionResult> Accept(AcceptMatchRequestCommand command)
+        public async Task<IActionResult> Accept(
+            [FromBody] AcceptMatchRequestCommand command)
         {
+            if (command.RequestId <= 0)
+            {
+                return BadRequest(new
+                {
+                    Code = 0,
+                    Message = "Valid RequestId is required"
+                });
+            }
+
             return Ok(await _mediator.Send(command));
         }
 

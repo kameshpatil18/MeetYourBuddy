@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authorization;
@@ -74,6 +75,257 @@ namespace MeetYourBuddy.ChatService.API.Controllers
             }
         }
 
+
+        // =====================================================================
+        // STREAMING CHAT — optimized for low perceived latency
+        // =====================================================================
+
+        [HttpPost("chat-stream")]
+        public async Task ChatStream(
+            [FromBody] BuddyChatRequest request,
+            CancellationToken ct = default)
+        {
+            Response.StatusCode = StatusCodes.Status200OK;
+            Response.ContentType = "application/x-ndjson; charset=utf-8";
+            Response.Headers.CacheControl = "no-cache, no-store";
+            Response.Headers["X-Accel-Buffering"] = "no";
+
+            if (request == null || string.IsNullOrWhiteSpace(request.Message))
+            {
+                Response.StatusCode = StatusCodes.Status400BadRequest;
+                await WriteStreamEventAsync(new
+                {
+                    type = "error",
+                    message = "Message is required."
+                }, ct);
+                return;
+            }
+
+            var stopwatch = Stopwatch.StartNew();
+
+            var ollamaUrl =
+                _configuration["BuddyAi:OllamaUrl"]
+                ?? "http://127.0.0.1:11434";
+
+            var model =
+                _configuration["BuddyAi:OllamaModel"]
+                ?? "qwen3:0.6b";
+
+            var category = DetectCategory(request.Message);
+            var maxOutputTokens = DetermineMaxOutputTokens(request.Message, category);
+
+            var messages = new List<OllamaMessage>
+            {
+                new("system", BuildSystemPrompt(request.Profile))
+            };
+
+            // Four short turns are enough for conversational continuity.
+            // Durable user facts live in Profile, so do not repeatedly send a huge transcript.
+            var recentHistory =
+                (request.History ?? Array.Empty<BuddyHistoryItem>())
+                .Where(x => x != null && !string.IsNullOrWhiteSpace(x.Content))
+                .TakeLast(4);
+
+            foreach (var item in recentHistory)
+            {
+                var role =
+                    item.Role.Equals("assistant", StringComparison.OrdinalIgnoreCase)
+                        ? "assistant"
+                        : "user";
+
+                messages.Add(new OllamaMessage(role, TrimMessage(item.Content, 700)));
+            }
+
+            messages.Add(new OllamaMessage("user", TrimMessage(request.Message, 1800)));
+
+            var payload = new
+            {
+                model,
+                messages,
+                stream = true,
+                think = false,
+                keep_alive = "1h",
+                options = new
+                {
+                    // Low temperature and compact context improve speed and consistency.
+                    temperature = 0.25,
+                    top_p = 0.85,
+                    repeat_penalty = 1.05,
+                    num_ctx = 1536,
+                    num_predict = maxOutputTokens,
+                    // Leave thread/GPU scheduling to Ollama unless explicitly tuned
+                    // for the deployment machine.
+                }
+            };
+
+            try
+            {
+                var client = _httpClientFactory.CreateClient("Ollama");
+
+                using var upstreamRequest = new HttpRequestMessage(
+                    HttpMethod.Post,
+                    $"{ollamaUrl.TrimEnd('/')}/api/chat")
+                {
+                    Content = JsonContent.Create(payload)
+                };
+
+                using var response = await client.SendAsync(
+                    upstreamRequest,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    ct);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    var errorBody = await response.Content.ReadAsStringAsync(ct);
+                    stopwatch.Stop();
+
+                    _logger.LogError(
+                        "Ollama stream failed. Status={Status}, ElapsedMs={ElapsedMs}, Body={Body}",
+                        (int)response.StatusCode,
+                        stopwatch.ElapsedMilliseconds,
+                        errorBody);
+
+                    await WriteStreamEventAsync(new
+                    {
+                        type = "error",
+                        message = "Buddy AI model is temporarily unavailable."
+                    }, ct);
+                    return;
+                }
+
+                await using var stream = await response.Content.ReadAsStreamAsync(ct);
+                using var reader = new StreamReader(stream, Encoding.UTF8);
+
+                var fullReply = new StringBuilder(2048);
+                var firstTokenLogged = false;
+
+                while (!reader.EndOfStream && !ct.IsCancellationRequested)
+                {
+                    var line = await reader.ReadLineAsync(ct);
+                    if (string.IsNullOrWhiteSpace(line))
+                        continue;
+
+                    using var document = JsonDocument.Parse(line);
+                    var root = document.RootElement;
+
+                    var delta = ExtractOllamaReply(root);
+
+                    if (!string.IsNullOrEmpty(delta))
+                    {
+                        if (!firstTokenLogged)
+                        {
+                            firstTokenLogged = true;
+                            _logger.LogInformation(
+                                "Buddy AI first token in {ElapsedMs}ms. Model={Model}, Category={Category}",
+                                stopwatch.ElapsedMilliseconds,
+                                model,
+                                category);
+                        }
+
+                        fullReply.Append(delta);
+
+                        await WriteStreamEventAsync(new
+                        {
+                            type = "delta",
+                            delta
+                        }, ct);
+                    }
+
+                    if (root.TryGetProperty("done", out var doneElement)
+                        && doneElement.ValueKind == JsonValueKind.True)
+                    {
+                        break;
+                    }
+                }
+
+                stopwatch.Stop();
+
+                var reply = CleanModelReply(fullReply.ToString());
+
+                if (string.IsNullOrWhiteSpace(reply))
+                {
+                    reply = "I couldn't prepare a useful response. Please try again.";
+                }
+
+                await WriteStreamEventAsync(new
+                {
+                    type = "done",
+                    reply,
+                    category,
+                    suggestions = BuildSuggestions(request.Message, category),
+                    provider = "ollama",
+                    model,
+                    responseTimeMs = stopwatch.ElapsedMilliseconds
+                }, ct);
+
+                _logger.LogInformation(
+                    "Buddy AI stream completed in {ElapsedMs}ms. Model={Model}, Category={Category}",
+                    stopwatch.ElapsedMilliseconds,
+                    model,
+                    category);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                _logger.LogInformation(
+                    "Buddy AI stream cancelled by client after {ElapsedMs}ms.",
+                    stopwatch.ElapsedMilliseconds);
+            }
+            catch (OperationCanceledException ex)
+            {
+                stopwatch.Stop();
+                _logger.LogWarning(ex,
+                    "Buddy AI stream timed out after {ElapsedMs}ms.",
+                    stopwatch.ElapsedMilliseconds);
+
+                if (!Response.HasStarted)
+                    Response.StatusCode = StatusCodes.Status504GatewayTimeout;
+
+                await WriteStreamEventAsync(new
+                {
+                    type = "error",
+                    message = "Buddy AI took too long to respond."
+                }, CancellationToken.None);
+            }
+            catch (HttpRequestException ex)
+            {
+                stopwatch.Stop();
+                _logger.LogError(ex,
+                    "Unable to connect to Ollama. ElapsedMs={ElapsedMs}",
+                    stopwatch.ElapsedMilliseconds);
+
+                await WriteStreamEventAsync(new
+                {
+                    type = "error",
+                    message = "Buddy AI local model is unavailable."
+                }, CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                _logger.LogError(ex,
+                    "Buddy AI streaming request failed. ElapsedMs={ElapsedMs}",
+                    stopwatch.ElapsedMilliseconds);
+
+                await WriteStreamEventAsync(new
+                {
+                    type = "error",
+                    message = "Buddy AI encountered an unexpected error."
+                }, CancellationToken.None);
+            }
+        }
+
+        private async Task WriteStreamEventAsync(
+            object payload,
+            CancellationToken ct)
+        {
+            var json = JsonSerializer.Serialize(payload);
+            await Response.WriteAsync(json + "\n", ct);
+            await Response.Body.FlushAsync(ct);
+        }
+
+        // =====================================================================
+        // CHAT
+        // =====================================================================
         // =====================================================================
         // CHAT
         // =====================================================================
@@ -83,7 +335,8 @@ namespace MeetYourBuddy.ChatService.API.Controllers
             [FromBody] BuddyChatRequest request,
             CancellationToken ct = default)
         {
-            if (string.IsNullOrWhiteSpace(request.Message))
+            if (request == null ||
+                string.IsNullOrWhiteSpace(request.Message))
             {
                 return BadRequest(new
                 {
@@ -115,20 +368,22 @@ namespace MeetYourBuddy.ChatService.API.Controllers
             var messages =
                 new List<OllamaMessage>
                 {
-                    new(
-                        "system",
-                        systemPrompt)
+            new(
+                "system",
+                systemPrompt)
                 };
 
-            // Keep only recent conversation.
-            // Large history is one of the main causes of slow local-model
-            // response time.
+            // ================================================================
+            // KEEP ONLY RECENT CHAT HISTORY
+            // ================================================================
+
             var recentHistory =
                 (request.History
                  ?? Array.Empty<BuddyHistoryItem>())
                 .Where(x =>
+                    x != null &&
                     !string.IsNullOrWhiteSpace(x.Content))
-                .TakeLast(6);
+                .TakeLast(4);
 
             foreach (var item in recentHistory)
             {
@@ -144,15 +399,23 @@ namespace MeetYourBuddy.ChatService.API.Controllers
                         role,
                         TrimMessage(
                             item.Content,
-                            1200)));
+                            700)));
             }
+
+            // ================================================================
+            // CURRENT USER MESSAGE
+            // ================================================================
 
             messages.Add(
                 new OllamaMessage(
                     "user",
                     TrimMessage(
                         request.Message,
-                        2500)));
+                        1800)));
+
+            // ================================================================
+            // OLLAMA PAYLOAD
+            // ================================================================
 
             var payload =
                 new
@@ -168,21 +431,21 @@ namespace MeetYourBuddy.ChatService.API.Controllers
                     think = false,
 
                     // Prevent model unloading between messages.
-                    keep_alive = "30m",
+                    keep_alive = "1h",
 
                     options =
-                        new
-                        {
-                            temperature = 0.30,
-                            top_p = 0.90,
-                            repeat_penalty = 1.05,
+    new
+    {
+        temperature = 0.25,
+        top_p = 0.85,
+        repeat_penalty = 1.05,
 
-                            // Prevent unnecessarily large context allocation.
-                            num_ctx = 4096,
+        // Reduce memory usage
+        num_ctx = 1536,
 
-                            // Dynamic response length.
-                            num_predict = maxOutputTokens
-                        }
+        // Prevent very long generations while testing
+        num_predict = maxOutputTokens
+    }
                 };
 
             try
@@ -191,12 +454,19 @@ namespace MeetYourBuddy.ChatService.API.Controllers
                     _httpClientFactory.CreateClient("Ollama");
 
                 _logger.LogInformation(
-                    "Buddy AI request started. Model={Model}, Category={Category}, " +
-                    "HistoryCount={HistoryCount}, NumPredict={NumPredict}",
+                    "Buddy AI request started. " +
+                    "Model={Model}, " +
+                    "Category={Category}, " +
+                    "HistoryCount={HistoryCount}, " +
+                    "NumPredict={NumPredict}",
                     model,
                     category,
                     messages.Count - 2,
                     maxOutputTokens);
+
+                // ============================================================
+                // CALL OLLAMA
+                // ============================================================
 
                 using var response =
                     await client.PostAsJsonAsync(
@@ -210,20 +480,49 @@ namespace MeetYourBuddy.ChatService.API.Controllers
 
                 stopwatch.Stop();
 
+                // ============================================================
+                // OLLAMA RETURNED NON-200
+                // ============================================================
+
                 if (!response.IsSuccessStatusCode)
                 {
-                    _logger.LogWarning(
-                        "Ollama returned HTTP {StatusCode} after {ElapsedMs}ms. Body: {Body}",
+                    string ollamaError = body;
+
+                    try
+                    {
+                        using var errorDocument =
+                            JsonDocument.Parse(body);
+
+                        if (errorDocument.RootElement.TryGetProperty(
+                                "error",
+                                out var errorElement))
+                        {
+                            ollamaError =
+                                errorElement.GetString()
+                                ?? body;
+                        }
+                    }
+                    catch
+                    {
+                        // Keep raw body if it is not valid JSON.
+                    }
+
+                    _logger.LogError(
+                        "Ollama failed. StatusCode={StatusCode}, " +
+                        "ElapsedMs={ElapsedMs}, Error={Error}",
                         (int)response.StatusCode,
                         stopwatch.ElapsedMilliseconds,
-                        body);
+                        ollamaError);
 
                     return StatusCode(
                         StatusCodes.Status503ServiceUnavailable,
                         new
                         {
                             message =
-                                "Buddy AI is temporarily unavailable.",
+                                "Buddy AI model failed while generating the response.",
+
+                            error =
+                                ollamaError,
 
                             category,
 
@@ -233,9 +532,16 @@ namespace MeetYourBuddy.ChatService.API.Controllers
                                     category),
 
                             provider = "ollama",
-                            model
+
+                            model,
+
+                            responseTimeMs =
+                                stopwatch.ElapsedMilliseconds
                         });
                 }
+                // ============================================================
+                // PARSE OLLAMA RESPONSE
+                // ============================================================
 
                 using var document =
                     JsonDocument.Parse(body);
@@ -249,10 +555,15 @@ namespace MeetYourBuddy.ChatService.API.Controllers
                 reply =
                     CleanModelReply(reply);
 
+                // ============================================================
+                // EMPTY RESPONSE
+                // ============================================================
+
                 if (string.IsNullOrWhiteSpace(reply))
                 {
                     _logger.LogWarning(
-                        "Ollama returned empty content after {ElapsedMs}ms.",
+                        "Ollama returned empty content " +
+                        "after {ElapsedMs}ms.",
                         stopwatch.ElapsedMilliseconds);
 
                     return Ok(new
@@ -268,6 +579,7 @@ namespace MeetYourBuddy.ChatService.API.Controllers
                                 category),
 
                         provider = "ollama",
+
                         model,
 
                         responseTimeMs =
@@ -275,8 +587,13 @@ namespace MeetYourBuddy.ChatService.API.Controllers
                     });
                 }
 
+                // ============================================================
+                // SUCCESS
+                // ============================================================
+
                 _logger.LogInformation(
-                    "Buddy AI completed in {ElapsedMs}ms. Model={Model}, Category={Category}",
+                    "Buddy AI completed in {ElapsedMs}ms. " +
+                    "Model={Model}, Category={Category}",
                     stopwatch.ElapsedMilliseconds,
                     model,
                     category);
@@ -287,8 +604,6 @@ namespace MeetYourBuddy.ChatService.API.Controllers
 
                     category,
 
-                    // Suggestions remain instant server-side logic.
-                    // Do not waste Ollama generation time creating these.
                     suggestions =
                         BuildSuggestions(
                             request.Message,
@@ -302,13 +617,54 @@ namespace MeetYourBuddy.ChatService.API.Controllers
                         stopwatch.ElapsedMilliseconds
                 });
             }
-            catch (OperationCanceledException)
-                when (!ct.IsCancellationRequested)
+
+            // =================================================================
+            // CLIENT / BROWSER CANCELLED THE REQUEST
+            // =================================================================
+
+            catch (OperationCanceledException ex)
+                when (ct.IsCancellationRequested)
+            {
+                stopwatch.Stop();
+
+                _logger.LogInformation(
+                    ex,
+                    "Buddy AI request cancelled by client " +
+                    "after {ElapsedMs}ms.",
+                    stopwatch.ElapsedMilliseconds);
+
+                // 499 = Client Closed Request.
+                // ASP.NET Core doesn't define a built-in constant for it.
+                return StatusCode(
+                    499,
+                    new
+                    {
+                        message =
+                            "Buddy AI request was cancelled.",
+
+                        category,
+
+                        provider = "ollama",
+
+                        model,
+
+                        responseTimeMs =
+                            stopwatch.ElapsedMilliseconds
+                    });
+            }
+
+            // =================================================================
+            // HTTPCLIENT / OLLAMA TIMEOUT
+            // =================================================================
+
+            catch (OperationCanceledException ex)
             {
                 stopwatch.Stop();
 
                 _logger.LogWarning(
-                    "Buddy AI timed out after {ElapsedMs}ms.",
+                    ex,
+                    "Buddy AI Ollama request timed out " +
+                    "after {ElapsedMs}ms.",
                     stopwatch.ElapsedMilliseconds);
 
                 return StatusCode(
@@ -326,23 +682,35 @@ namespace MeetYourBuddy.ChatService.API.Controllers
                                 category),
 
                         provider = "ollama",
-                        model
+
+                        model,
+
+                        responseTimeMs =
+                            stopwatch.ElapsedMilliseconds
                     });
             }
+
+            // =================================================================
+            // CANNOT CONNECT TO OLLAMA
+            // =================================================================
+
             catch (HttpRequestException ex)
             {
                 stopwatch.Stop();
 
                 _logger.LogError(
                     ex,
-                    "Unable to connect to Ollama.");
+                    "Unable to connect to Ollama. " +
+                    "ElapsedMs={ElapsedMs}",
+                    stopwatch.ElapsedMilliseconds);
 
                 return StatusCode(
                     StatusCodes.Status503ServiceUnavailable,
                     new
                     {
                         message =
-                            "Buddy AI local model is unavailable. Make sure Ollama is running.",
+                            "Buddy AI local model is unavailable. " +
+                            "Make sure Ollama is running.",
 
                         category,
 
@@ -352,16 +720,27 @@ namespace MeetYourBuddy.ChatService.API.Controllers
                                 category),
 
                         provider = "ollama",
-                        model
+
+                        model,
+
+                        responseTimeMs =
+                            stopwatch.ElapsedMilliseconds
                     });
             }
+
+            // =================================================================
+            // INVALID JSON FROM OLLAMA
+            // =================================================================
+
             catch (JsonException ex)
             {
                 stopwatch.Stop();
 
                 _logger.LogError(
                     ex,
-                    "Invalid JSON returned by Ollama.");
+                    "Invalid JSON returned by Ollama. " +
+                    "ElapsedMs={ElapsedMs}",
+                    stopwatch.ElapsedMilliseconds);
 
                 return StatusCode(
                     StatusCodes.Status502BadGateway,
@@ -370,17 +749,30 @@ namespace MeetYourBuddy.ChatService.API.Controllers
                         message =
                             "Buddy AI returned an invalid response.",
 
+                        category,
+
                         provider = "ollama",
-                        model
+
+                        model,
+
+                        responseTimeMs =
+                            stopwatch.ElapsedMilliseconds
                     });
             }
+
+            // =================================================================
+            // UNEXPECTED ERROR
+            // =================================================================
+
             catch (Exception ex)
             {
                 stopwatch.Stop();
 
                 _logger.LogError(
                     ex,
-                    "Buddy AI request failed.");
+                    "Buddy AI request failed. " +
+                    "ElapsedMs={ElapsedMs}",
+                    stopwatch.ElapsedMilliseconds);
 
                 return StatusCode(
                     StatusCodes.Status500InternalServerError,
@@ -389,8 +781,14 @@ namespace MeetYourBuddy.ChatService.API.Controllers
                         message =
                             "Buddy AI encountered an unexpected error.",
 
+                        category,
+
                         provider = "ollama",
-                        model
+
+                        model,
+
+                        responseTimeMs =
+                            stopwatch.ElapsedMilliseconds
                     });
             }
         }
@@ -920,6 +1318,12 @@ namespace MeetYourBuddy.ChatService.API.Controllers
               require urgent professional medical care.
             - Sharp or worsening exercise pain should not be pushed through.
 
+            RESPONSE EFFICIENCY
+            - Start with the answer; do not add preambles.
+            - Keep ordinary answers under roughly 180 words unless the user asks for a plan.
+            - For plans, be complete but compact: prefer tables or tight bullets over explanations.
+            - Never repeat the same advice in multiple sections.
+
             STYLE
             - Use concise Markdown.
             - Use short headings and bullets.
@@ -950,7 +1354,7 @@ namespace MeetYourBuddy.ChatService.API.Controllers
                     text,
                     @"weekly\s+(workout|training|plan|routine)"))
             {
-                return 1400;
+                return 700;
             }
 
             // Typical workout plans.
@@ -962,7 +1366,7 @@ namespace MeetYourBuddy.ChatService.API.Controllers
                     text,
                     @"workout\s+plan|training\s+plan|gym\s+routine|exercise\s+plan"))
             {
-                return 900;
+                return 520;
             }
 
             // Meal plans can also be moderately long.
@@ -970,7 +1374,7 @@ namespace MeetYourBuddy.ChatService.API.Controllers
                     text,
                     @"meal\s+plan|diet\s+plan|full.?day\s+diet"))
             {
-                return 750;
+                return 280;
             }
 
             // Most ordinary fitness questions should be short.
@@ -983,7 +1387,7 @@ namespace MeetYourBuddy.ChatService.API.Controllers
                 return 450;
             }
 
-            return 500;
+            return 320;
         }
 
         // =====================================================================
