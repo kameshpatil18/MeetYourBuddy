@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
   Box,
@@ -11,28 +11,44 @@ import {
   Typography,
 } from '@mui/material'
 
-export default function VerifyEmailPage() {
+const IDENTITY_API = (
+  process.env.NEXT_PUBLIC_IDENTITY_API_URL ||
+  'https://localhost:7030'
+).replace(/\/+$/, '')
+
+function VerifyEmailContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
 
+  const token = searchParams.get('token') || ''
+
   const [loading, setLoading] = useState(true)
   const [success, setSuccess] = useState(false)
-  const [message, setMessage] = useState('Verifying your email...')
+  const [message, setMessage] = useState(
+    'Verifying your email...'
+  )
 
   useEffect(() => {
-    const verifyEmail = async () => {
-      const token = searchParams.get('token')
+    let cancelled = false
 
+    const verifyEmail = async () => {
       if (!token) {
-        setSuccess(false)
-        setMessage('Verification token is missing.')
-        setLoading(false)
+        if (!cancelled) {
+          setSuccess(false)
+          setMessage('Verification token is missing.')
+          setLoading(false)
+        }
+
         return
       }
 
       try {
+        setLoading(true)
+
         const response = await fetch(
-          `https://localhost:7030/api/auth/verify-email?token=${encodeURIComponent(token)}`,
+          `${IDENTITY_API}/api/auth/verify-email?token=${encodeURIComponent(
+            token
+          )}`,
           {
             method: 'GET',
             headers: {
@@ -42,6 +58,7 @@ export default function VerifyEmailPage() {
         )
 
         const text = await response.text()
+
         let result: any = null
 
         if (text) {
@@ -52,33 +69,50 @@ export default function VerifyEmailPage() {
           }
         }
 
+        if (cancelled) return
+
         if (response.ok) {
           setSuccess(true)
+
           setMessage(
             result?.message ||
               'Your email has been verified successfully. Redirecting to login...'
           )
 
-          setTimeout(() => {
+          window.setTimeout(() => {
             router.push('/login')
           }, 2500)
         } else {
           setSuccess(false)
+
           setMessage(
             result?.message ||
               'Email verification failed. The link may be invalid or expired.'
           )
         }
       } catch (error) {
-        setSuccess(false)
-        setMessage('Unable to verify email. Please try again later.')
+        console.error('Verify email error:', error)
+
+        if (!cancelled) {
+          setSuccess(false)
+
+          setMessage(
+            'Unable to verify email. Please try again later.'
+          )
+        }
       } finally {
-        setLoading(false)
+        if (!cancelled) {
+          setLoading(false)
+        }
       }
     }
 
     verifyEmail()
-  }, [router, searchParams])
+
+    return () => {
+      cancelled = true
+    }
+  }, [router, token])
 
   return (
     <Box
@@ -96,13 +130,18 @@ export default function VerifyEmailPage() {
         <Paper
           elevation={0}
           sx={{
-            p: { xs: 4, sm: 5 },
+            p: {
+              xs: 4,
+              sm: 5,
+            },
             borderRadius: 5,
             textAlign: 'center',
             background: 'rgba(12,18,35,0.88)',
-            border: '1px solid rgba(255,255,255,0.08)',
+            border:
+              '1px solid rgba(255,255,255,0.08)',
             backdropFilter: 'blur(18px)',
-            boxShadow: '0 24px 80px rgba(0,0,0,0.45)',
+            boxShadow:
+              '0 24px 80px rgba(0,0,0,0.45)',
           }}
         >
           {loading ? (
@@ -122,7 +161,9 @@ export default function VerifyEmailPage() {
                 background: success
                   ? 'rgba(74,222,128,0.12)'
                   : 'rgba(248,113,113,0.12)',
-                color: success ? '#4ade80' : '#f87171',
+                color: success
+                  ? '#4ade80'
+                  : '#f87171',
               }}
             >
               {success ? '✓' : '✕'}
@@ -166,8 +207,10 @@ export default function VerifyEmailPage() {
                 borderRadius: 3,
                 textTransform: 'none',
                 fontWeight: 700,
-                background: 'linear-gradient(135deg, #6366f1, #22d3ee)',
-                boxShadow: '0 12px 30px rgba(99,102,241,0.35)',
+                background:
+                  'linear-gradient(135deg, #6366f1, #22d3ee)',
+                boxShadow:
+                  '0 12px 30px rgba(99,102,241,0.35)',
               }}
             >
               Go to Login
@@ -176,5 +219,30 @@ export default function VerifyEmailPage() {
         </Paper>
       </Container>
     </Box>
+  )
+}
+
+function VerifyEmailLoading() {
+  return (
+    <Box
+      sx={{
+        minHeight: '100vh',
+        background:
+          'radial-gradient(circle at top, rgba(99,102,241,0.22), transparent 35%), #060912',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <CircularProgress size={46} />
+    </Box>
+  )
+}
+
+export default function VerifyEmailPage() {
+  return (
+    <Suspense fallback={<VerifyEmailLoading />}>
+      <VerifyEmailContent />
+    </Suspense>
   )
 }

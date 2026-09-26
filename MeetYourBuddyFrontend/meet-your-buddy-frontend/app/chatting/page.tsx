@@ -122,7 +122,9 @@ type OffProduct = {
 }
 
 // ─── Config ───────────────────────────────────────────────────────────────────
-const CHAT_API_BASE = 'https://localhost:7250'
+const CHAT_API_BASE = (
+  process.env.NEXT_PUBLIC_CHAT_API_URL || 'https://localhost:7250'
+).replace(/\/+$/, '')
 const SIGNALR_HUB = `${CHAT_API_BASE}/chatHub`
 const EXERCISE_DB_BASE = 'https://oss.exercisedb.dev/api/v1'
 const EXERCISE_RESULT_LIMIT = 5
@@ -2362,7 +2364,7 @@ Choose a quick action below or ask me anything about fitness.`,
 
         let streamMessageCreated = false
         let latestStreamText = ''
-        let revealTimer: ReturnType<typeof window.setTimeout> | null = null
+        let revealTimer: number | null = null
 
         const revealStreamMessage = () => {
           const textToShow = latestStreamText
