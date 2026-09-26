@@ -1,10 +1,11 @@
 import DashboardLayout from "@/components/DashboardLayout"
-import ProfileForm from "@/components/ProfileForm"
+
+import SocialWallPage from "@/components/SocialWall"
 
 export default function DashboardPage() {
   return (
     <DashboardLayout>
-      <ProfileForm />
+      <SocialWallPage />
     </DashboardLayout>
   )
 }

@@ -227,7 +227,7 @@ const mapProfileToForm = (data: any): FormState => ({
   bio: data?.bio ?? data?.Bio ?? '',
 })
 
-export default function ProfileForm() {
+export default function ProfileFormPage() {
   const router = useRouter()
 
   const [activeStep, setActiveStep] = useState(0)
@@ -267,6 +267,8 @@ export default function ProfileForm() {
     country: '',
     bio: '',
   })
+
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof FormState, string>>>({})
 
   const getCookie = (name: string): string => {
     if (typeof document === 'undefined') return ''
@@ -514,10 +516,21 @@ export default function ProfileForm() {
 
   const stepProgress = ((activeStep + 1) / STEPS.length) * 100
 
+  const clearFieldError = (key: keyof FormState) => {
+    setFieldErrors((previous) => {
+      if (!previous[key]) return previous
+
+      const next = { ...previous }
+      delete next[key]
+      return next
+    })
+  }
+
   const handleChange =
     (key: keyof FormState) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
       setForm((p) => ({ ...p, [key]: e.target.value }))
+      clearFieldError(key)
     }
 
   const handleCountryChange = (e: any) => {
@@ -532,6 +545,9 @@ export default function ProfileForm() {
 
     setStateOptions([])
     setCityOptions([])
+    clearFieldError('country')
+    clearFieldError('state')
+    clearFieldError('city')
   }
 
   const handleStateChange = (e: any) => {
@@ -544,6 +560,8 @@ export default function ProfileForm() {
     }))
 
     setCityOptions([])
+    clearFieldError('state')
+    clearFieldError('city')
   }
 
   const handleCityChange = (e: any) => {
@@ -551,6 +569,7 @@ export default function ProfileForm() {
       ...p,
       city: e.target.value,
     }))
+    clearFieldError('city')
   }
 
   const handleImage = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -601,6 +620,56 @@ export default function ProfileForm() {
     )
   }
 
+  const requiredLabels: Record<keyof Pick<FormState, 'firstName' | 'lastName' | 'gender' | 'dateOfBirth' | 'country' | 'state' | 'city'>, string> = {
+    firstName: 'First name',
+    lastName: 'Last name',
+    gender: 'Gender',
+    dateOfBirth: 'Date of birth',
+    country: 'Country',
+    state: 'State',
+    city: 'City',
+  }
+
+  const validateFields = (
+    fields: Array<keyof typeof requiredLabels>,
+    showMessage = true
+  ): boolean => {
+    const errors: Partial<Record<keyof FormState, string>> = {}
+
+    fields.forEach((field) => {
+      if (!form[field]?.trim()) {
+        errors[field] = `${requiredLabels[field]} is required.`
+      }
+    })
+
+    setFieldErrors((previous) => ({ ...previous, ...errors }))
+
+    if (Object.keys(errors).length > 0) {
+      if (showMessage) {
+        setSeverity('error')
+        setMessage(`Please complete all required fields: ${Object.keys(errors)
+          .map((field) => requiredLabels[field as keyof typeof requiredLabels])
+          .join(', ')}.`)
+        setOpen(true)
+      }
+      return false
+    }
+
+    return true
+  }
+
+  const validateCurrentStep = (): boolean => {
+    if (activeStep === 0) {
+      return validateFields(['firstName', 'lastName', 'gender', 'dateOfBirth'])
+    }
+
+    if (activeStep === 1) {
+      return validateFields(['country', 'state', 'city'])
+    }
+
+    return true
+  }
+
   const validateBeforeSubmit = (): boolean => {
     if (!userId) {
       setSeverity('error')
@@ -609,14 +678,7 @@ export default function ProfileForm() {
       return false
     }
 
-    if (!form.firstName || !form.lastName) {
-      setSeverity('error')
-      setMessage('Please enter first name and last name.')
-      setOpen(true)
-      return false
-    }
-
-    return true
+    return validateFields(['firstName', 'lastName', 'gender', 'dateOfBirth', 'country', 'state', 'city'])
   }
 
   const handleSubmitProfile = async () => {
@@ -682,9 +744,12 @@ export default function ProfileForm() {
   const handlePrimaryAction = () => {
     if (activeStep === STEPS.length - 1) {
       handleSubmitProfile()
-    } else {
-      setActiveStep((p) => p + 1)
+      return
     }
+
+    if (!validateCurrentStep()) return
+
+    setActiveStep((p) => p + 1)
   }
 
   const isLastStep = activeStep === STEPS.length - 1
@@ -925,6 +990,9 @@ export default function ProfileForm() {
                     <Grid size={{ xs: 12, sm: 6 }}>
                       <TextField
                         label="First Name"
+                        required
+                        error={Boolean(fieldErrors.firstName)}
+                        helperText={fieldErrors.firstName || ' '}
                         fullWidth
                         value={form.firstName}
                         onChange={handleChange('firstName')}
@@ -943,6 +1011,9 @@ export default function ProfileForm() {
                     <Grid size={{ xs: 12, sm: 6 }}>
                       <TextField
                         label="Last Name"
+                        required
+                        error={Boolean(fieldErrors.lastName)}
+                        helperText={fieldErrors.lastName || ' '}
                         fullWidth
                         value={form.lastName}
                         onChange={handleChange('lastName')}
@@ -962,6 +1033,9 @@ export default function ProfileForm() {
                       <TextField
                         select
                         label="Gender"
+                        required
+                        error={Boolean(fieldErrors.gender)}
+                        helperText={fieldErrors.gender || ' '}
                         fullWidth
                         value={form.gender}
                         onChange={handleChange('gender') as any}
@@ -986,6 +1060,9 @@ export default function ProfileForm() {
                       <TextField
                         type="date"
                         label="Date of Birth"
+                        required
+                        error={Boolean(fieldErrors.dateOfBirth)}
+                        helperText={fieldErrors.dateOfBirth || ' '}
                         fullWidth
                         value={form.dateOfBirth}
                         onChange={handleChange('dateOfBirth')}
@@ -1009,6 +1086,9 @@ export default function ProfileForm() {
                       <TextField
                         select
                         label="Country"
+                        required
+                        error={Boolean(fieldErrors.country)}
+                        helperText={fieldErrors.country || ' '}
                         fullWidth
                         value={form.country}
                         onChange={handleCountryChange}
@@ -1039,6 +1119,9 @@ export default function ProfileForm() {
                       <TextField
                         select
                         label="State"
+                        required
+                        error={Boolean(fieldErrors.state)}
+                        helperText={fieldErrors.state || ' '}
                         fullWidth
                         value={form.state}
                         onChange={handleStateChange}
@@ -1071,6 +1154,9 @@ export default function ProfileForm() {
                       <TextField
                         select
                         label="City"
+                        required
+                        error={Boolean(fieldErrors.city)}
+                        helperText={fieldErrors.city || ' '}
                         fullWidth
                         value={form.city}
                         onChange={handleCityChange}
@@ -1130,43 +1216,17 @@ export default function ProfileForm() {
                                 }}
                               />
                               <Typography sx={{ color: '#e2e8f0', fontWeight: 700, fontSize: '0.88rem' }}>
-                                GPS Coordinates
+                                GPS Location
                               </Typography>
                             </Stack>
 
                             {latitude && longitude ? (
-                              <Stack direction="row" spacing={1} flexWrap="wrap">
-                                <Box
-                                  sx={{
-                                    px: 1.5,
-                                    py: 0.4,
-                                    borderRadius: '999px',
-                                    background: 'rgba(99,102,241,0.12)',
-                                    border: '1px solid rgba(99,102,241,0.25)',
-                                  }}
-                                >
-                                  <Typography sx={{ color: '#a5b4fc', fontSize: '0.75rem', fontWeight: 600 }}>
-                                    Lat: {latitude.toFixed(6)}
-                                  </Typography>
-                                </Box>
-
-                                <Box
-                                  sx={{
-                                    px: 1.5,
-                                    py: 0.4,
-                                    borderRadius: '999px',
-                                    background: 'rgba(34,211,238,0.10)',
-                                    border: '1px solid rgba(34,211,238,0.22)',
-                                  }}
-                                >
-                                  <Typography sx={{ color: '#67e8f9', fontSize: '0.75rem', fontWeight: 600 }}>
-                                    Lng: {longitude.toFixed(6)}
-                                  </Typography>
-                                </Box>
-                              </Stack>
+                              <Typography sx={{ color: '#4ade80', fontSize: '0.8rem', fontWeight: 700 }}>
+                                ✓ Location stored to your profile
+                              </Typography>
                             ) : (
                               <Typography sx={{ color: 'rgba(148,163,184,0.5)', fontSize: '0.8rem' }}>
-                                {locationError || 'Click to detect your precise coordinates.'}
+                                {locationError || 'Click to detect and store your location.'}
                               </Typography>
                             )}
 

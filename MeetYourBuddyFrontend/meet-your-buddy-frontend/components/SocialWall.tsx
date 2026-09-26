@@ -162,6 +162,7 @@ export default function SocialWallPage() {
   const [commentPosting, setCommentPosting] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [likeAnimId, setLikeAnimId] = useState<number | null>(null)
+  const [shareToast, setShareToast] = useState('')
 
   // FIX: token is set client-side only, inside useEffect
   useEffect(() => {
@@ -353,6 +354,44 @@ export default function SocialWallPage() {
     }
   }
 
+  const handleShare = async (post: Post) => {
+    const shareUrl =
+      typeof window !== 'undefined'
+        ? `${window.location.origin}${window.location.pathname}?post=${post.id}`
+        : ''
+
+    const shareText = post.content?.trim()
+      ? `${post.userName || 'A buddy'} shared: ${post.content.trim().slice(0, 140)}${post.content.trim().length > 140 ? '…' : ''}`
+      : `Check out this post from ${post.userName || 'MeetYourBuddy'}.`
+
+    try {
+      if (typeof navigator !== 'undefined' && navigator.share) {
+        await navigator.share({
+          title: `MeetYourBuddy · ${post.userName || 'Social Wall'}`,
+          text: shareText,
+          url: shareUrl,
+        })
+        setShareToast('Post shared')
+      } else if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(`${shareText}\n${shareUrl}`)
+        setShareToast('Post link copied')
+      } else {
+        const textarea = document.createElement('textarea')
+        textarea.value = `${shareText}\n${shareUrl}`
+        document.body.appendChild(textarea)
+        textarea.select()
+        document.execCommand('copy')
+        textarea.remove()
+        setShareToast('Post link copied')
+      }
+    } catch (error: any) {
+      if (error?.name === 'AbortError') return
+      setShareToast('Could not share this post')
+    }
+
+    window.setTimeout(() => setShareToast(''), 2200)
+  }
+
   const selectedPost = posts.find(p => p.id === selectedPostId)
 
   return (
@@ -403,16 +442,17 @@ export default function SocialWallPage() {
 
         .sw-inner {
           position: relative; z-index: 1;
-          max-width: 1320px; margin: 0 auto;
-          padding: 32px 24px 80px;
+          max-width: 1180px; margin: 0 auto;
+          padding: 24px 22px 72px;
         }
 
         /* ── Header ── */
         .sw-header {
-          display: flex; align-items: flex-end; justify-content: space-between;
-          gap: 20px; flex-wrap: wrap;
-          margin-bottom: 48px;
-          padding-bottom: 32px;
+          display: flex; align-items: center; justify-content: space-between;
+          gap: 18px; flex-wrap: wrap;
+          margin-bottom: 24px;
+          padding: 2px 0 20px;
+          border-bottom: 1px solid rgba(255,255,255,0.06);
           border-bottom: 1px solid rgba(255,255,255,0.06);
         }
 
@@ -432,10 +472,10 @@ export default function SocialWallPage() {
 
         .sw-title {
           font-family: 'Syne', sans-serif;
-          font-size: clamp(38px, 5vw, 68px);
+          font-size: clamp(25px, 3vw, 34px);
           font-weight: 800;
-          letter-spacing: -2px;
-          line-height: 1;
+          letter-spacing: -1.2px;
+          line-height: 1.1;
           background: linear-gradient(135deg, #fff 30%, rgba(160,120,255,0.9) 65%, rgba(0,200,220,0.85) 100%);
           -webkit-background-clip: text;
           -webkit-text-fill-color: transparent;
@@ -443,12 +483,12 @@ export default function SocialWallPage() {
         }
 
         .sw-subtitle {
-          margin-top: 12px;
-          color: rgba(200,210,230,0.55);
-          font-size: 15px;
+          margin-top: 7px;
+          color: rgba(200,210,230,0.54);
+          font-size: 13px;
           font-weight: 400;
-          max-width: 380px;
-          line-height: 1.6;
+          max-width: 520px;
+          line-height: 1.5;
         }
 
         .sw-refresh-btn {
@@ -483,8 +523,8 @@ export default function SocialWallPage() {
         /* ── Layout ── */
         .sw-layout {
           display: grid;
-          grid-template-columns: minmax(0, 1fr) 300px;
-          gap: 28px;
+          grid-template-columns: minmax(0, 1fr) 270px;
+          gap: 20px;
           align-items: start;
         }
         @media (max-width: 900px) {
@@ -496,15 +536,15 @@ export default function SocialWallPage() {
         .sw-card {
           background: rgba(255,255,255,0.04);
           border: 1px solid rgba(255,255,255,0.08);
-          border-radius: 24px;
+          border-radius: 18px;
           backdrop-filter: blur(20px);
           -webkit-backdrop-filter: blur(20px);
         }
 
         /* ── Composer ── */
         .sw-composer {
-          padding: 24px;
-          margin-bottom: 28px;
+          padding: 18px;
+          margin-bottom: 20px;
           position: relative; overflow: hidden;
         }
         .sw-composer::after {
@@ -521,8 +561,8 @@ export default function SocialWallPage() {
         .sw-composer-textarea {
           flex: 1; background: transparent; border: none; outline: none;
           color: #e8eaf6; font-family: 'DM Sans', sans-serif;
-          font-size: 15px; line-height: 1.65; resize: none;
-          width: 100%; min-height: 80px;
+          font-size: 14px; line-height: 1.55; resize: none;
+          width: 100%; min-height: 58px;
           padding: 4px 0;
         }
         .sw-composer-textarea::placeholder { color: rgba(200,210,230,0.3); }
@@ -594,7 +634,7 @@ export default function SocialWallPage() {
         }
         .sw-feed-title {
           font-family: 'Syne', sans-serif;
-          font-size: 20px; font-weight: 700;
+          font-size: 16px; font-weight: 700;
           letter-spacing: -0.5px; color: #fff;
         }
         .sw-feed-count {
@@ -606,15 +646,16 @@ export default function SocialWallPage() {
         }
 
         /* ── Post cards ── */
-        .sw-post-list { display: flex; flex-direction: column; gap: 20px; }
+        .sw-post-list { display: flex; flex-direction: column; gap: 14px; }
 
         .sw-post-card {
-          padding: 22px; position: relative; overflow: hidden;
+          padding: 18px; position: relative; overflow: hidden;
           transition: transform 0.2s, box-shadow 0.2s;
         }
         .sw-post-card:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 20px 50px rgba(0,0,0,0.35);
+          transform: translateY(-1px);
+          border-color: rgba(129,140,248,0.16);
+          box-shadow: 0 16px 42px rgba(0,0,0,0.28);
         }
         .sw-post-card::before {
           content: '';
@@ -644,9 +685,9 @@ export default function SocialWallPage() {
         }
 
         .sw-post-content {
-          font-size: 15px; line-height: 1.7;
-          color: rgba(220,225,240,0.88);
-          white-space: pre-wrap; margin-bottom: 16px;
+          font-size: 14px; line-height: 1.62;
+          color: rgba(226,232,240,0.9);
+          white-space: pre-wrap; margin-bottom: 14px;
         }
 
         .sw-post-image-wrap {
@@ -657,12 +698,12 @@ export default function SocialWallPage() {
         }
         .sw-post-image {
           width: 100%; display: block;
-          max-height: 400px; object-fit: cover;
+          max-height: 460px; object-fit: cover;
         }
 
         .sw-post-stats {
           display: flex; gap: 16px;
-          padding: 12px 0; margin-bottom: 12px;
+          padding: 10px 0; margin-bottom: 10px;
           border-top: 1px solid rgba(255,255,255,0.05);
           border-bottom: 1px solid rgba(255,255,255,0.05);
         }
@@ -678,7 +719,7 @@ export default function SocialWallPage() {
 
         .sw-action-btn {
           flex: 1; display: flex; align-items: center; justify-content: center; gap: 7px;
-          padding: 10px 12px; border-radius: 12px;
+          padding: 9px 10px; border-radius: 11px;
           border: 1px solid rgba(255,255,255,0.07);
           background: rgba(255,255,255,0.03);
           color: rgba(200,210,230,0.65);
@@ -711,7 +752,7 @@ export default function SocialWallPage() {
         /* ── Sidebar ── */
         .sw-sidebar { display: flex; flex-direction: column; gap: 20px; }
 
-        .sw-side-card { padding: 20px; }
+        .sw-side-card { padding: 16px; }
 
         .sw-side-title {
           font-family: 'Syne', sans-serif;
@@ -736,7 +777,7 @@ export default function SocialWallPage() {
         }
         .sw-stat-big-num {
           font-family: 'Syne', sans-serif;
-          font-size: 40px; font-weight: 800; color: #fff;
+          font-size: 28px; font-weight: 800; color: #fff;
           line-height: 1;
         }
         .sw-stat-big-label {
@@ -824,6 +865,121 @@ export default function SocialWallPage() {
           margin-bottom: 8px;
         }
         .sw-empty-text { font-size: 14px; color: rgba(200,210,230,0.45); }
+
+
+        .sw-feed-main { min-width: 0; }
+
+        .sw-post-card {
+          background:
+            linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.028));
+        }
+
+        .sw-post-user-meta {
+          min-width: 0;
+        }
+
+        .sw-post-name {
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .sw-post-menu {
+          width: 34px;
+          height: 34px;
+          border-radius: 10px;
+          border: 1px solid transparent;
+          background: transparent;
+          color: rgba(203,213,225,0.48);
+          cursor: pointer;
+          display: grid;
+          place-items: center;
+          font-size: 16px;
+          transition: all .18s ease;
+        }
+
+        .sw-post-menu:hover {
+          background: rgba(255,255,255,0.05);
+          border-color: rgba(255,255,255,0.07);
+          color: rgba(226,232,240,0.86);
+        }
+
+        .sw-action-btn .sw-action-icon {
+          font-size: 14px;
+          line-height: 1;
+        }
+
+        .sw-share-toast {
+          position: fixed;
+          left: 50%;
+          bottom: 26px;
+          z-index: 1400;
+          transform: translateX(-50%);
+          padding: 10px 14px;
+          border-radius: 12px;
+          background: rgba(15,23,42,0.94);
+          border: 1px solid rgba(129,140,248,0.22);
+          box-shadow: 0 14px 40px rgba(0,0,0,.34);
+          backdrop-filter: blur(18px);
+          color: #e2e8f0;
+          font-size: 12px;
+          font-weight: 700;
+          animation: shareToastIn .18s ease;
+        }
+
+        @keyframes shareToastIn {
+          from { opacity: 0; transform: translate(-50%, 8px); }
+          to { opacity: 1; transform: translate(-50%, 0); }
+        }
+
+        .sw-composer-hint {
+          font-size: 11px;
+          color: rgba(148,163,184,.42);
+          margin-left: 56px;
+          margin-top: -9px;
+          margin-bottom: 12px;
+        }
+
+        .sw-refresh-btn {
+          padding: 9px 13px;
+          border-radius: 11px;
+          font-size: 12px;
+        }
+
+        .sw-post-btn {
+          padding: 9px 16px;
+          border-radius: 11px;
+          font-size: 12px;
+          box-shadow: 0 7px 20px rgba(99,60,220,.24);
+        }
+
+        .sw-tool-btn {
+          padding: 7px 11px;
+          font-size: 11px;
+        }
+
+        .sw-image-input-wrap {
+          margin-left: 54px;
+        }
+
+        .sw-side-card {
+          background: rgba(10,15,27,.72);
+        }
+
+        @media (max-width: 620px) {
+          .sw-inner { padding: 18px 12px 56px; }
+          .sw-header { margin-bottom: 16px; padding-bottom: 14px; }
+          .sw-subtitle { font-size: 12px; }
+          .sw-card { border-radius: 15px; }
+          .sw-composer, .sw-post-card { padding: 14px; }
+          .sw-post-actions { gap: 6px; }
+          .sw-action-btn { font-size: 12px; padding: 9px 7px; }
+          .sw-action-btn .action-label { display: none; }
+          .sw-composer-actions { align-items: flex-end; }
+          .sw-image-input-wrap { margin-left: 0; }
+          .sw-composer-hint { margin-left: 0; }
+        }
+
 
         /* ── Comment panel ── */
         .sw-overlay {
@@ -945,8 +1101,8 @@ export default function SocialWallPage() {
           <header className="sw-header">
             <div>
               <div className="sw-eyebrow">MeetYourBuddy · Social Wall</div>
-              <h1 className="sw-title">The Wall</h1>
-              <p className="sw-subtitle">Share moments, connect with buddies, keep the vibe alive.</p>
+              <h1 className="sw-title">Social Wall</h1>
+              <p className="sw-subtitle">See what your buddies are up to, share an update, and join the conversation.</p>
             </div>
             <button className="sw-refresh-btn" onClick={loadPosts}>
               <span style={{ fontSize: 16 }}>↻</span> Refresh
@@ -959,7 +1115,7 @@ export default function SocialWallPage() {
 
           <div className="sw-layout">
             {/* ── Left column ── */}
-            <div>
+            <div className="sw-feed-main">
               {/* Composer */}
               <div className="sw-card sw-composer">
                 <div className="sw-composer-top">
@@ -977,6 +1133,9 @@ export default function SocialWallPage() {
                     placeholder="What's on your mind today?"
                     rows={3}
                   />
+                </div>
+                <div className="sw-composer-hint">
+                  Share an update, a small win, a plan, or ask the community something.
                 </div>
 
                 {showImageInput && (
@@ -1006,7 +1165,15 @@ export default function SocialWallPage() {
                     >
                       🖼 Image
                     </button>
-                    <button className="sw-tool-btn">😊 Mood</button>
+                    <button
+                      className="sw-tool-btn"
+                      onClick={() => {
+                        setNewPost(value => value ? `${value} ✨` : 'Feeling motivated today ✨')
+                        textareaRef.current?.focus()
+                      }}
+                    >
+                      😊 Mood
+                    </button>
                   </div>
 
                   <button
@@ -1048,12 +1215,12 @@ export default function SocialWallPage() {
                       <div className="sw-post-header">
                         <div className="sw-post-user">
                           <Avatar name={post.userName} src={post.userImage} size={42} />
-                          <div>
+                          <div className="sw-post-user-meta">
                             <div className="sw-post-name">{post.userName || 'Unknown'}</div>
                             <div className="sw-post-time">{formatTime(post.createdDate)}</div>
                           </div>
                         </div>
-                        <span className="sw-post-badge">···</span>
+                        <button className="sw-post-menu" type="button" aria-label="More post options">•••</button>
                       </div>
 
                       <div className="sw-post-content">{post.content}</div>
@@ -1080,18 +1247,26 @@ export default function SocialWallPage() {
                           className={`sw-action-btn${post.isLiked ? ' liked' : ''}`}
                           onClick={() => handleLike(post.id)}
                         >
-                          <span className={likeAnimId === post.id ? 'heart-pop' : ''}>
+                          <span className={`sw-action-icon ${likeAnimId === post.id ? 'heart-pop' : ''}`}>
                             {post.isLiked ? '♥' : '♡'}
                           </span>
-                          {post.isLiked ? 'Liked' : 'Like'}
+                          <span className="action-label">{post.isLiked ? 'Liked' : 'Like'}</span>
                         </button>
                         <button
                           className="sw-action-btn"
                           onClick={() => loadComments(post.id)}
                         >
-                          ◎ Comment
+                          <span className="sw-action-icon">◎</span>
+                          <span className="action-label">Comment</span>
                         </button>
-                        <button className="sw-action-btn">↗ Share</button>
+                        <button
+                          className="sw-action-btn"
+                          onClick={() => handleShare(post)}
+                          type="button"
+                        >
+                          <span className="sw-action-icon">↗</span>
+                          <span className="action-label">Share</span>
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -1145,6 +1320,12 @@ export default function SocialWallPage() {
       </div>
 
       {/* ── Comment Panel ── */}
+      {shareToast && (
+        <div className="sw-share-toast" role="status" aria-live="polite">
+          ✓ {shareToast}
+        </div>
+      )}
+
       {selectedPostId !== null && (
         <div className="sw-overlay" onClick={() => setSelectedPostId(null)}>
           <div className="sw-comment-panel" onClick={e => e.stopPropagation()}>
