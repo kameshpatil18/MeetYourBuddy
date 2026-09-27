@@ -156,6 +156,8 @@ const FOOD_RESULT_LIMIT = 5
 const BUDDY_AI_API = CHAT_API_BASE ? `${CHAT_API_BASE}/api/BuddyAi` : ''
 const GYM_RESULT_LIMIT = 6
 const YOUTUBE_RESULT_LIMIT = 4
+const ACTIVE_CHAT_STORAGE_KEY = 'meetyourbuddy.activeChatUserId'
+
 const POPULAR_INDIAN_CITIES = [
   'Mumbai', 'Pune', 'Delhi', 'Bengaluru', 'Hyderabad', 'Chennai',
   'Kolkata', 'Ahmedabad', 'Nashik', 'Nagpur', 'Thane', 'Jaipur',
@@ -1978,30 +1980,30 @@ Choose a quick action below or ask me anything about fitness.`,
         'data',
       )
 
-      setConversations(
-        arr
-          .filter(isRecord)
-          .map(c => {
-            const otherUserName = String(
-              c.otherUserName ??
-                c.OtherUserName ??
-                c.userName ??
-                c.UserName ??
-                c.name ??
-                c.Name ??
-                'Buddy',
-            ).trim()
+      const normalizedConversations: Conversation[] = arr
+        .filter(isRecord)
+        .map(c => {
+          const otherUserName = String(
+            c.otherUserName ??
+              c.OtherUserName ??
+              c.userName ??
+              c.UserName ??
+              c.name ??
+              c.Name ??
+              'Buddy',
+          ).trim()
 
-            return {
-              userId: Number(
-                c.otherUserId ??
-                  c.OtherUserId ??
-                  c.userId ??
-                  c.UserId ??
-                  0,
-              ),
-              userName: otherUserName || 'Buddy',
-              userPhoto: String(
+          return {
+            userId: Number(
+              c.otherUserId ??
+                c.OtherUserId ??
+                c.userId ??
+                c.UserId ??
+                0,
+            ),
+            userName: otherUserName || 'Buddy',
+            userPhoto:
+              String(
                 c.otherUserPhoto ??
                   c.OtherUserPhoto ??
                   c.userPhoto ??
@@ -2010,14 +2012,16 @@ Choose a quick action below or ask me anything about fitness.`,
                   c.ProfileImage ??
                   '',
               ) || undefined,
-              lastMessage: String(
+            lastMessage:
+              String(
                 c.lastMessage ??
                   c.LastMessage ??
                   c.lastMessageText ??
                   c.LastMessageText ??
                   '',
               ) || undefined,
-              lastMessageDate: String(
+            lastMessageDate:
+              String(
                 c.lastMessageTime ??
                   c.LastMessageTime ??
                   c.lastMessageDate ??
@@ -2026,15 +2030,63 @@ Choose a quick action below or ask me anything about fitness.`,
                   c.CreatedDate ??
                   '',
               ) || undefined,
-              unreadCount: Number(
-                c.unreadCount ??
-                  c.UnreadCount ??
-                  0,
-              ),
-            } satisfies Conversation
-          })
-          .filter(c => c.userId > 0),
-      )
+            unreadCount: Number(
+              c.unreadCount ??
+                c.UnreadCount ??
+                0,
+            ),
+          } satisfies Conversation
+        })
+        .filter(c => c.userId > 0)
+
+      setConversations(normalizedConversations)
+
+      // Preserve the selected buddy across browser refreshes. If there is no
+      // saved selection yet, automatically open the first available buddy so
+      // history and the message composer are visible immediately.
+      setActiveConvo(current => {
+        const currentMatch = current
+          ? normalizedConversations.find(
+              item => item.userId === current.userId,
+            )
+          : undefined
+
+        if (currentMatch) {
+          return currentMatch
+        }
+
+        let savedUserId = 0
+
+        try {
+          savedUserId = Number(
+            window.localStorage.getItem(
+              ACTIVE_CHAT_STORAGE_KEY,
+            ) ?? 0,
+          )
+        } catch {
+          savedUserId = 0
+        }
+
+        const restored =
+          normalizedConversations.find(
+            item => item.userId === savedUserId,
+          ) ??
+          normalizedConversations[0] ??
+          null
+
+        if (restored) {
+          try {
+            window.localStorage.setItem(
+              ACTIVE_CHAT_STORAGE_KEY,
+              String(restored.userId),
+            )
+          } catch {
+            // Storage may be unavailable in restrictive browser modes.
+          }
+        }
+
+        return restored
+      })
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         handleUnauthorized()
@@ -2055,6 +2107,19 @@ Choose a quick action below or ask me anything about fitness.`,
   useEffect(() => {
     if (token) void loadConversations()
   }, [token, loadConversations])
+
+  useEffect(() => {
+    if (!activeConvo?.userId) return
+
+    try {
+      window.localStorage.setItem(
+        ACTIVE_CHAT_STORAGE_KEY,
+        String(activeConvo.userId),
+      )
+    } catch {
+      // Ignore storage failures.
+    }
+  }, [activeConvo?.userId])
 
   // Load chat history
   const loadHistory = useCallback(
@@ -2104,9 +2169,19 @@ Choose a quick action below or ask me anything about fitness.`,
             const sid = Number(
               m.senderId ?? m.SenderId ?? 0,
             )
-            const rid = Number(
+            const rawReceiverId = Number(
               m.receiverId ?? m.ReceiverId ?? 0,
             )
+
+            // GetChatHistory currently returns Message objects that may not
+            // include ReceiverId. Infer it from the two chat participants so
+            // persisted messages are not incorrectly discarded.
+            const rid =
+              rawReceiverId > 0
+                ? rawReceiverId
+                : sid === resolvedMyId
+                  ? otherUserId
+                  : resolvedMyId
 
             const createdDate = String(
               m.createdDate ??
@@ -2144,7 +2219,8 @@ Choose a quick action below or ask me anything about fitness.`,
           .filter(
             message =>
               message.senderId > 0 &&
-              message.receiverId > 0,
+              message.receiverId > 0 &&
+              Boolean(message.message.trim()),
           )
 
         setMessages(prev => {
@@ -3661,6 +3737,7 @@ Choose a quick action below or ask me anything about fitness.`,
         .msg-area {
           display: flex;
           flex-direction: column;
+          min-height: 0;
           overflow: hidden;
         }
 
@@ -3723,7 +3800,8 @@ Choose a quick action below or ask me anything about fitness.`,
         }
 
         .msg-body {
-          flex: 1;
+          flex: 1 1 auto;
+          min-height: 0;
           overflow-y: auto;
           padding: 20px 22px;
           display: flex;
@@ -3842,6 +3920,7 @@ Choose a quick action below or ask me anything about fitness.`,
           padding: 14px 18px 18px;
           border-top: 1px solid rgba(255,255,255,0.06);
           display: flex;
+          min-height: 70px;
           gap: 10px;
           align-items: center;
           flex-shrink: 0;
@@ -5123,6 +5202,16 @@ Choose a quick action below or ask me anything about fitness.`,
                       shouldAutoScrollRef.current = true
                       setChatError('')
                       setActiveConvo(c)
+
+                      try {
+                        window.localStorage.setItem(
+                          ACTIVE_CHAT_STORAGE_KEY,
+                          String(c.userId),
+                        )
+                      } catch {
+                        // Ignore storage failures and continue normally.
+                      }
+
                       setConversations(prev =>
                         prev.map(item =>
                           item.userId === c.userId
@@ -5199,7 +5288,7 @@ Choose a quick action below or ask me anything about fitness.`,
                     type="button"
                     onClick={() => {
                       shouldAutoScrollRef.current = true
-                      loadHistory(activeConvo.userId)
+                      void loadHistory(activeConvo.userId)
                     }}
                     style={{
                       background: 'none',
