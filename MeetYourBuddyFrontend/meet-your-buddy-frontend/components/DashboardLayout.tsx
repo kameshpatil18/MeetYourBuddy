@@ -1,18 +1,28 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import { usePathname, useRouter } from 'next/navigation'
-import type { ReactNode } from 'react'
-import buddyIcon from '../app/Buddy-icon.png' 
 import Image from 'next/image'
-/* ═══════════════════════════════════════════
-   TYPES & CONSTANTS
-═══════════════════════════════════════════ */
-interface NavItemDef {
+import { usePathname, useRouter } from 'next/navigation'
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from 'react'
+import buddyIcon from '../app/Buddy-icon.png'
+
+type NavItemDef = {
   icon: string
   label: string
   href: string
-  badge?: number
+}
+
+type PendingRequest = {
+  id: string
+  senderName: string
+  senderInitial: string
+  message: string
 }
 
 const NAV_ITEMS: NavItemDef[] = [
@@ -22,384 +32,183 @@ const NAV_ITEMS: NavItemDef[] = [
   { icon: '⚙️', label: 'Settings', href: '/settings' },
 ]
 
-/* ═══════════════════════════════════════════
-   NAV ITEM
-═══════════════════════════════════════════ */
-function NavItem({
-  icon,
-  label,
-  href,
-  badge,
-  active,
-  collapsed,
-}: NavItemDef & {
-  active: boolean
-  collapsed: boolean
-}) {
-  const router = useRouter()
-  const [hovered, setHovered] = useState(false)
+const MATCHING_API_BASE = (
+  process.env.NEXT_PUBLIC_MATCHING_API_BASE_URL || 'https://localhost:7169'
+).replace(/\/+$/, '')
 
-  const lit = active || hovered
-
-  const handleClick = () => {
-    router.push(href)
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={handleClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        width: '100%',
-        border: active
-          ? '1px solid rgba(99,102,241,0.25)'
-          : '1px solid transparent',
-        outline: 'none',
-        cursor: 'pointer',
-        display: 'flex',
-        alignItems: 'center',
-        gap: collapsed ? 0 : '12px',
-        justifyContent: collapsed ? 'center' : 'flex-start',
-        padding: collapsed ? '12px' : '11px 14px',
-        borderRadius: '12px',
-        textDecoration: 'none',
-        position: 'relative',
-        transition: 'all 0.2s ease',
-        background: active
-          ? 'linear-gradient(135deg, rgba(99,102,241,0.18), rgba(34,211,238,0.08))'
-          : hovered
-            ? 'rgba(255,255,255,0.04)'
-            : 'transparent',
-      }}
-    >
-      {active && (
-        <div
-          style={{
-            position: 'absolute',
-            left: 0,
-            top: '20%',
-            bottom: '20%',
-            width: '3px',
-            borderRadius: '999px',
-            background: 'linear-gradient(180deg, #6366f1, #22d3ee)',
-          }}
-        />
-      )}
-
-      <span
-        style={{
-          fontSize: '1.05rem',
-          flexShrink: 0,
-          filter: lit ? 'none' : 'grayscale(0.3) opacity(0.55)',
-          transition: 'filter 0.2s',
-        }}
-      >
-        {icon}
-      </span>
-
-      {!collapsed && (
-        <span
-          style={{
-            fontFamily: "'Outfit', sans-serif",
-            fontSize: '0.875rem',
-            fontWeight: active ? 600 : 400,
-            color: active
-              ? '#e2e8f0'
-              : hovered
-                ? '#cbd5e1'
-                : 'rgba(148,163,184,0.6)',
-            transition: 'color 0.15s',
-            whiteSpace: 'nowrap',
-            flex: 1,
-            textAlign: 'left',
-          }}
-        >
-          {label}
-        </span>
-      )}
-
-      {badge && !collapsed && (
-        <span
-          style={{
-            fontSize: '0.62rem',
-            fontWeight: 700,
-            fontFamily: "'Outfit', sans-serif",
-            background: 'linear-gradient(135deg, #6366f1, #22d3ee)',
-            color: '#fff',
-            padding: '1px 7px',
-            borderRadius: '999px',
-            minWidth: '20px',
-            textAlign: 'center',
-          }}
-        >
-          {badge}
-        </span>
-      )}
-
-      {badge && collapsed && (
-        <div
-          style={{
-            position: 'absolute',
-            top: '8px',
-            right: '8px',
-            width: '7px',
-            height: '7px',
-            borderRadius: '50%',
-            background: '#6366f1',
-            border: '1.5px solid #060912',
-          }}
-        />
-      )}
-
-      {collapsed && hovered && (
-        <div
-          style={{
-            position: 'absolute',
-            left: 'calc(100% + 12px)',
-            top: '50%',
-            transform: 'translateY(-50%)',
-            background: 'rgba(8,12,24,0.98)',
-            border: '1px solid rgba(255,255,255,0.08)',
-            borderRadius: '8px',
-            padding: '6px 12px',
-            whiteSpace: 'nowrap',
-            fontFamily: "'Outfit', sans-serif",
-            fontSize: '0.8rem',
-            color: '#e2e8f0',
-            pointerEvents: 'none',
-            zIndex: 50,
-            boxShadow: '0 8px 24px rgba(0,0,0,0.45)',
-          }}
-        >
-          {label}
-          {badge ? ` · ${badge}` : ''}
-        </div>
-      )}
-    </button>
-  )
-}
-
-/* ═══════════════════════════════════════════
-   SIDEBAR
-═══════════════════════════════════════════ */
-function Sidebar({
-  collapsed,
-  onToggle,
-}: {
-  collapsed: boolean
-  onToggle: () => void
-}) {
-  const pathname = usePathname()
-
-  const isActiveRoute = (href: string) => {
-    if (href === '/dashboard') {
-      return pathname === '/dashboard'
-    }
-
-    return pathname === href || pathname.startsWith(`${href}/`)
-  }
-
-  return (
-    <aside
-      style={{
-        width: collapsed ? '68px' : '228px',
-        height: '100vh',
-        background: 'rgba(6,9,18,0.98)',
-        borderRight: '1px solid rgba(255,255,255,0.05)',
-        display: 'flex',
-        flexDirection: 'column',
-        transition: 'width 0.28s cubic-bezier(.4,0,.2,1)',
-        flexShrink: 0,
-        position: 'sticky',
-        top: 0,
-        zIndex: 20,
-        overflowX: 'hidden',
-        overflowY: 'auto',
-      }}
-    >
-      {/* Logo */}
-      <div
-        style={{
-          padding: collapsed ? '20px 0' : '20px 18px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '10px',
-          justifyContent: collapsed ? 'center' : 'flex-start',
-          borderBottom: '1px solid rgba(255,255,255,0.05)',
-          marginBottom: '10px',
-          flexShrink: 0,
-        }}
-      >
-<div
-  style={{
-    width: '32px',
-    height: '32px',
-    borderRadius: '10px',
-    overflow: 'hidden',
-    flexShrink: 0,
-    boxShadow: '0 4px 14px rgba(99,102,241,0.35)',
-  }}
->
-  <Image
-    src={buddyIcon}
-    alt="Buddy"
-    width={32}
-    height={32}
-    style={{
-      width: '100%',
-      height: '100%',
-      objectFit: 'cover',
-    }}
-  />
-</div>
-
-        {!collapsed && (
-          <span
-            style={{
-              fontFamily: "'Syne', sans-serif",
-              fontSize: '1rem',
-              letterSpacing: '-0.02em',
-              background: 'linear-gradient(90deg, #a5b4fc, #67e8f9)',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            meetyourbuddy
-          </span>
-        )}
-      </div>
-
-      {/* Nav */}
-      <nav
-        style={{
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '2px',
-          padding: collapsed ? '0 8px' : '0 10px',
-        }}
-      >
-        {NAV_ITEMS.map(item => (
-          <NavItem
-            key={item.label}
-            {...item}
-            active={isActiveRoute(item.href)}
-            collapsed={collapsed}
-          />
-        ))}
-      </nav>
-
-      {/* Toggle */}
-      <div
-        style={{
-          padding: collapsed ? '16px 0' : '16px 10px',
-          borderTop: '1px solid rgba(255,255,255,0.05)',
-          display: 'flex',
-          justifyContent: collapsed ? 'center' : 'flex-end',
-          flexShrink: 0,
-        }}
-      >
-        <button
-          type="button"
-          onClick={onToggle}
-          style={{
-            width: '32px',
-            height: '32px',
-            borderRadius: '8px',
-            border: '1px solid rgba(255,255,255,0.07)',
-            background: 'rgba(255,255,255,0.03)',
-            color: 'rgba(148,163,184,0.5)',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '0.85rem',
-            transition: 'all 0.2s',
-          }}
-          onMouseEnter={e => {
-            e.currentTarget.style.background = 'rgba(99,102,241,0.12)'
-            e.currentTarget.style.color = '#818cf8'
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.background = 'rgba(255,255,255,0.03)'
-            e.currentTarget.style.color = 'rgba(148,163,184,0.5)'
-          }}
-        >
-          {collapsed ? '›' : '‹'}
-        </button>
-      </div>
-    </aside>
-  )
-}
-
-/* ═══════════════════════════════════════════
-   TOP BAR
-═══════════════════════════════════════════ */
-interface PendingRequest {
-  id: number | string
-  senderName: string
-  senderInitial: string
-  message: string
-}
-
-// Change this only if your AcceptMatchRequestCommand / RejectMatchRequestCommand
-// uses a different property name, such as requestId or matchingId.
 const MATCH_REQUEST_ID_BODY_KEY = 'RequestId'
 
-function TopBar() {
+function getCookie(name: string) {
+  if (typeof document === 'undefined') return ''
+  const value = `; ${document.cookie}`
+  const parts = value.split(`; ${name}=`)
+  if (parts.length !== 2) return ''
+
+  try {
+    return decodeURIComponent(parts.pop()!.split(';').shift() || '')
+  } catch {
+    return ''
+  }
+}
+
+function getToken() {
+  if (typeof window === 'undefined') return ''
+
+  return (
+    localStorage.getItem('token') ||
+    localStorage.getItem('accessToken') ||
+    localStorage.getItem('authToken') ||
+    sessionStorage.getItem('token') ||
+    sessionStorage.getItem('accessToken') ||
+    sessionStorage.getItem('authToken') ||
+    getCookie('token') ||
+    getCookie('accessToken') ||
+    getCookie('authToken') ||
+    ''
+  )
+}
+
+function Sidebar({
+  collapsed,
+  mobileOpen,
+  onToggle,
+  onCloseMobile,
+}: {
+  collapsed: boolean
+  mobileOpen: boolean
+  onToggle: () => void
+  onCloseMobile: () => void
+}) {
+  const pathname = usePathname()
   const router = useRouter()
 
-  const [searchFocused, setSearchFocused] = useState(false)
+  const isActive = (href: string) =>
+    href === '/dashboard'
+      ? pathname === '/dashboard'
+      : pathname === href || pathname.startsWith(`${href}/`)
+
+  const go = (href: string) => {
+    router.push(href)
+    onCloseMobile()
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        aria-label="Close navigation"
+        className={`db-backdrop ${mobileOpen ? 'show' : ''}`}
+        onClick={onCloseMobile}
+      />
+
+      <aside
+        className={[
+          'db-sidebar',
+          collapsed ? 'collapsed' : '',
+          mobileOpen ? 'mobile-open' : '',
+        ].join(' ')}
+      >
+        <div className="db-brand">
+          <button
+            type="button"
+            className="db-brand-link"
+            onClick={() => go('/dashboard')}
+          >
+            <span className="db-logo">
+              <Image
+                src={buddyIcon}
+                alt="MeetYourBuddy"
+                width={36}
+                height={36}
+                priority
+              />
+            </span>
+
+            {!collapsed && (
+              <span className="db-brand-name">meetyourbuddy</span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            className="db-mobile-close"
+            onClick={onCloseMobile}
+            aria-label="Close menu"
+          >
+            ✕
+          </button>
+        </div>
+
+        <nav className="db-nav" aria-label="Dashboard navigation">
+          {NAV_ITEMS.map(item => {
+            const active = isActive(item.href)
+
+            return (
+              <button
+                key={item.href}
+                type="button"
+                className={`db-nav-item ${active ? 'active' : ''}`}
+                onClick={() => go(item.href)}
+                title={collapsed ? item.label : undefined}
+                aria-current={active ? 'page' : undefined}
+              >
+                <span className="db-nav-icon">{item.icon}</span>
+
+                {!collapsed && (
+                  <span className="db-nav-label">{item.label}</span>
+                )}
+              </button>
+            )
+          })}
+        </nav>
+
+        <div className="db-sidebar-footer">
+          <button
+            type="button"
+            className="db-collapse"
+            onClick={onToggle}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            <span className="db-collapse-arrow">
+              {collapsed ? '›' : '‹'}
+            </span>
+            {!collapsed && <span>Collapse</span>}
+          </button>
+        </div>
+      </aside>
+    </>
+  )
+}
+
+function TopBar({
+  onOpenMobile,
+}: {
+  onOpenMobile: () => void
+}) {
+  const router = useRouter()
+
   const [searchQuery, setSearchQuery] = useState('')
-  const [userName, setUserName] = useState('Kamesh Patil')
-  const [userInitial, setUserInitial] = useState('K')
+  const [userName, setUserName] = useState('Buddy')
+  const [userInitial, setUserInitial] = useState('B')
+
   const [profileOpen, setProfileOpen] = useState(false)
   const [notificationOpen, setNotificationOpen] = useState(false)
+
   const [pendingRequests, setPendingRequests] = useState<PendingRequest[]>([])
   const [notificationsLoading, setNotificationsLoading] = useState(false)
   const [notificationError, setNotificationError] = useState('')
   const [requestActionId, setRequestActionId] = useState<string | null>(null)
   const [requestActionError, setRequestActionError] = useState('')
 
-  const dropdownRef = useRef<HTMLDivElement | null>(null)
+  const profileRef = useRef<HTMLDivElement | null>(null)
   const notificationRef = useRef<HTMLDivElement | null>(null)
 
-  const getCookie = (name: string) => {
-    if (typeof document === 'undefined') return ''
-
-    const value = `; ${document.cookie}`
-    const parts = value.split(`; ${name}=`)
-
-    if (parts.length === 2) {
-      return decodeURIComponent(parts.pop()!.split(';').shift()!)
-    }
-
-    return ''
-  }
-
-  const getToken = () => {
-    if (typeof window === 'undefined') return ''
-
-    return (
-      localStorage.getItem('token') ||
-      localStorage.getItem('accessToken') ||
-      localStorage.getItem('authToken') ||
-      getCookie('token') ||
-      getCookie('accessToken') ||
-      getCookie('authToken') ||
-      ''
-    )
-  }
-
-  const loadPendingRequests = async () => {
+  const loadPendingRequests = useCallback(async () => {
     const token = getToken()
 
     if (!token) {
       setPendingRequests([])
-      setNotificationError('Please log in again to load requests.')
+      setNotificationError('Please sign in again to load requests.')
       return
     }
 
@@ -408,102 +217,108 @@ function TopBar() {
       setNotificationError('')
 
       const response = await fetch(
-        'https://localhost:7169/api/matching/get-pending-request',
+        `${MATCHING_API_BASE}/api/matching/get-pending-request`,
         {
-          method: 'GET',
+          cache: 'no-store',
           headers: {
             Authorization: `Bearer ${token}`,
             Accept: 'application/json',
           },
-        }
+        },
       )
 
       if (!response.ok) {
-        throw new Error(`Unable to load pending requests (${response.status}).`)
+        throw new Error(`Unable to load requests (${response.status}).`)
       }
 
       const result: unknown = await response.json()
-      const responseObject = result as Record<string, unknown>
-      const requestList = Array.isArray(result)
+      const obj = result as Record<string, unknown>
+
+      const list = Array.isArray(result)
         ? result
-        : Array.isArray(responseObject?.data)
-          ? responseObject.data
-          : Array.isArray(responseObject?.requests)
-            ? responseObject.requests
-            : Array.isArray(responseObject?.items)
-              ? responseObject.items
+        : Array.isArray(obj?.data)
+          ? obj.data
+          : Array.isArray(obj?.requests)
+            ? obj.requests
+            : Array.isArray(obj?.items)
+              ? obj.items
               : []
 
-      const mappedRequests: PendingRequest[] = requestList.map(
-        (request: unknown, index: number) => {
-          const item = request as Record<string, unknown>
-          const firstName = String(
-            item.firstName ??
-              item.senderFirstName ??
-              item.fromUserFirstName ??
-              ''
-          )
-          const lastName = String(
-            item.lastName ??
-              item.senderLastName ??
-              item.fromUserLastName ??
-              ''
-          )
-          const generatedName = [firstName, lastName].filter(Boolean).join(' ')
-          const senderName = String(
-            item.senderName ??
-              item.fullName ??
-              item.requestedByName ??
-              item.userName ??
-              (generatedName || 'New buddy request')
-          )
+      const mapped = list.map((value: unknown, index: number) => {
+        const item = value as Record<string, unknown>
 
-          return {
-            id: String(
-              item.id ??
-                item.requestId ??
-                item.matchingId ??
-                item.senderId ??
-                index + 1
-            ),
-            senderName,
-            senderInitial: senderName.charAt(0).toUpperCase() || 'B',
-            message: String(
-              item.message ??
-                item.bio ??
-                'Sent you a buddy request.'
-            ),
-          }
+        const firstName = String(
+          item.firstName ??
+            item.senderFirstName ??
+            item.fromUserFirstName ??
+            '',
+        )
+
+        const lastName = String(
+          item.lastName ??
+            item.senderLastName ??
+            item.fromUserLastName ??
+            '',
+        )
+
+        const fallbackName = [firstName, lastName]
+          .filter(Boolean)
+          .join(' ')
+
+        const senderName = String(
+          item.senderName ??
+            item.fullName ??
+            item.requestedByName ??
+            item.userName ??
+            fallbackName ??
+            'New buddy request',
+        )
+
+        return {
+          id: String(
+            item.id ??
+              item.requestId ??
+              item.matchingId ??
+              item.senderId ??
+              index + 1,
+          ),
+          senderName: senderName || 'New buddy request',
+          senderInitial: (senderName || 'B').charAt(0).toUpperCase(),
+          message: String(
+            item.message ??
+              item.bio ??
+              'Sent you a buddy request.',
+          ),
         }
-      )
+      })
 
-      setPendingRequests(mappedRequests)
+      setPendingRequests(mapped)
     } catch (error) {
       console.error('Pending-request API error:', error)
       setPendingRequests([])
-      setNotificationError('Could not load notifications. Please try again.')
+      setNotificationError('Could not load notifications.')
     } finally {
       setNotificationsLoading(false)
     }
-  }
+  }, [])
 
   const handleRequestAction = async (
     action: 'accept' | 'reject',
-    request: PendingRequest
+    request: PendingRequest,
   ) => {
     const token = getToken()
 
     if (!token) {
-      setRequestActionError('Your session has expired. Please log in again.')
+      setRequestActionError('Your session has expired.')
       return
     }
 
     try {
-      setRequestActionId(String(request.id))
+      setRequestActionId(request.id)
       setRequestActionError('')
 
       const response = await fetch(
-        `https://localhost:7169/api/matching/${action}`,
+        `${MATCHING_API_BASE}/api/matching/${action}`,
         {
           method: 'POST',
           headers: {
@@ -514,17 +329,16 @@ function TopBar() {
           body: JSON.stringify({
             [MATCH_REQUEST_ID_BODY_KEY]: request.id,
           }),
-        }
+        },
       )
 
       if (!response.ok) {
-        const errorText = await response.text()
-        throw new Error(errorText || `Unable to ${action} this request.`)
+        const text = await response.text()
+        throw new Error(text || `Unable to ${action} request.`)
       }
 
-      // Immediately remove it from the badge and notification list.
-      setPendingRequests(previous =>
-        previous.filter(item => String(item.id) !== String(request.id))
+      setPendingRequests(current =>
+        current.filter(item => item.id !== request.id),
       )
 
       if (action === 'accept') {
@@ -532,66 +346,45 @@ function TopBar() {
         router.push('/chatting')
       }
     } catch (error) {
-      console.error(`${action} request API error:`, error)
       setRequestActionError(
         error instanceof Error
           ? error.message
-          : `Could not ${action} this request. Please try again.`
+          : `Could not ${action} request.`,
       )
     } finally {
       setRequestActionId(null)
     }
   }
 
-  const handleNotificationClick = async () => {
-    const shouldOpen = !notificationOpen
-    setNotificationOpen(shouldOpen)
-    setProfileOpen(false)
-
-    if (shouldOpen) {
-      await loadPendingRequests()
-    }
-  }
-
-  const handleProfileClick = () => {
-    setProfileOpen(false)
-    router.push('/profileform')
-  }
-
-  const handleSearchSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleSearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const query = searchQuery.trim()
 
-    if (!query) {
-      router.push('/usersfilters')
-      return
-    }
-
-    router.push(`/usersfilters?q=${encodeURIComponent(query)}`)
+    router.push(
+      query
+        ? `/usersfilters?q=${encodeURIComponent(query)}`
+        : '/usersfilters',
+    )
   }
 
-  const handleLogout = () => {
-    localStorage.removeItem('token')
-    localStorage.removeItem('accessToken')
-    localStorage.removeItem('authToken')
-    localStorage.removeItem('user')
-    sessionStorage.clear()
+  const logout = () => {
+    ;['token', 'accessToken', 'authToken', 'user'].forEach(key => {
+      localStorage.removeItem(key)
+      sessionStorage.removeItem(key)
+      document.cookie = `${key}=; Max-Age=0; path=/; SameSite=Lax`
+    })
 
-    document.cookie = 'token=; Max-Age=0; path=/'
-    document.cookie = 'accessToken=; Max-Age=0; path=/'
-    document.cookie = 'authToken=; Max-Age=0; path=/'
-    document.cookie = 'user=; Max-Age=0; path=/'
-
-    setProfileOpen(false)
-    setNotificationOpen(false)
-    router.push('/login')
+    router.replace('/login')
   }
 
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
+    const closeOutside = (event: MouseEvent) => {
       const target = event.target as Node
 
-      if (dropdownRef.current && !dropdownRef.current.contains(target)) {
+      if (
+        profileRef.current &&
+        !profileRef.current.contains(target)
+      ) {
         setProfileOpen(false)
       }
 
@@ -603,471 +396,256 @@ function TopBar() {
       }
     }
 
-    document.addEventListener('mousedown', handleClickOutside)
+    document.addEventListener('mousedown', closeOutside)
 
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('mousedown', closeOutside)
     }
   }, [])
 
   useEffect(() => {
-    // Load the badge count as soon as the dashboard opens, then keep it current.
     void loadPendingRequests()
 
-    const intervalId = window.setInterval(() => {
-      void loadPendingRequests()
-    }, 30000)
+    const id = window.setInterval(
+      () => void loadPendingRequests(),
+      30000,
+    )
 
-    return () => {
-      window.clearInterval(intervalId)
-    }
-    // loadPendingRequests intentionally runs on initial dashboard mount.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    return () => window.clearInterval(id)
+  }, [loadPendingRequests])
 
   useEffect(() => {
     try {
-      const rawCookieUser = getCookie('user')
-      const rawLocalUser =
-        typeof window !== 'undefined' ? localStorage.getItem('user') : null
-      const rawUser = rawCookieUser || rawLocalUser
+      const raw =
+        getCookie('user') ||
+        localStorage.getItem('user') ||
+        sessionStorage.getItem('user') ||
+        ''
 
-      if (!rawUser) return
+      if (!raw) return
 
-      const user = JSON.parse(rawUser) as Record<string, unknown>
-      const firstName = String(user.firstName ?? user.first_name ?? '')
-      const lastName = String(user.lastName ?? user.last_name ?? '')
-      const fullName = [firstName, lastName].filter(Boolean).join(' ')
+      const user = JSON.parse(raw) as Record<string, unknown>
+      const firstName = String(
+        user.firstName ?? user.first_name ?? '',
+      )
+      const lastName = String(
+        user.lastName ?? user.last_name ?? '',
+      )
+
+      const fullName =
+        String(user.fullName ?? '').trim() ||
+        [firstName, lastName].filter(Boolean).join(' ')
 
       if (fullName) {
         setUserName(fullName)
-        setUserInitial(firstName?.[0]?.toUpperCase() || fullName[0]?.toUpperCase() || 'K')
+        setUserInitial(
+          firstName?.[0]?.toUpperCase() ||
+            fullName[0]?.toUpperCase() ||
+            'B',
+        )
       }
     } catch {
-      // Ignore invalid user data.
+      // Ignore invalid saved user data.
     }
   }, [])
 
   return (
-    <header
-      style={{
-        height: '62px',
-        background: 'rgba(6,9,18,0.88)',
-        backdropFilter: 'blur(20px)',
-        borderBottom: '1px solid rgba(255,255,255,0.05)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '0 24px',
-        flexShrink: 0,
-        position: 'sticky',
-        top: 0,
-        zIndex: 10,
-      }}
-    >
-      <form
-        onSubmit={handleSearchSubmit}
-        style={{
-          position: 'relative',
-          width: 'min(360px, 38vw)',
-        }}
+    <header className="db-topbar">
+      <button
+        type="button"
+        className="db-mobile-menu"
+        onClick={onOpenMobile}
+        aria-label="Open navigation"
       >
-        <span
-          style={{
-            position: 'absolute',
-            left: '13px',
-            top: '50%',
-            transform: 'translateY(-50%)',
-            fontSize: '0.82rem',
-            opacity: 0.45,
-            pointerEvents: 'none',
-          }}
-        >
-          🔍
-        </span>
+        ☰
+      </button>
 
+      <form className="db-search" onSubmit={handleSearch}>
+        <span>⌕</span>
         <input
-          type="text"
           value={searchQuery}
           onChange={event => setSearchQuery(event.target.value)}
-          placeholder="Search buddies by name, city or interest…"
-          onFocus={() => setSearchFocused(true)}
-          onBlur={() => setSearchFocused(false)}
-          style={{
-            width: '100%',
-            padding: '9px 42px 9px 36px',
-            background: searchFocused
-              ? 'rgba(99,102,241,0.08)'
-              : 'rgba(255,255,255,0.04)',
-            border: `1px solid ${
-              searchFocused
-                ? 'rgba(99,102,241,0.42)'
-                : 'rgba(255,255,255,0.07)'
-            }`,
-            borderRadius: '12px',
-            color: '#e2e8f0',
-            fontFamily: "'Outfit', sans-serif",
-            fontSize: '0.82rem',
-            outline: 'none',
-            transition: 'all 0.2s',
-            boxShadow: searchFocused
-              ? '0 0 0 3px rgba(99,102,241,0.10)'
-              : 'none',
-          }}
+          placeholder="Search buddies, city, interests…"
+          aria-label="Search buddies"
         />
-
-        <button
-          type="submit"
-          title="Search buddies"
-          style={{
-            position: 'absolute',
-            right: '5px',
-            top: '50%',
-            transform: 'translateY(-50%)',
-            width: '31px',
-            height: '31px',
-            borderRadius: '9px',
-            border: '1px solid rgba(99,102,241,0.22)',
-            background: searchQuery.trim()
-              ? 'linear-gradient(135deg, rgba(99,102,241,0.95), rgba(34,211,238,0.78))'
-              : 'rgba(255,255,255,0.03)',
-            color: '#fff',
-            cursor: 'pointer',
-            transition: 'all .2s ease',
-          }}
-        >
-          →
-        </button>
+        <button type="submit" aria-label="Search">→</button>
       </form>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <div className="db-top-actions">
         <button
           type="button"
+          className="db-profile-cta"
           onClick={() => router.push('/profileform')}
-          style={{
-            height: '38px',
-            padding: '0 14px',
-            borderRadius: '11px',
-            border: '1px solid rgba(99,102,241,0.28)',
-            background:
-              'linear-gradient(135deg, rgba(99,102,241,0.18), rgba(34,211,238,0.08))',
-            color: '#dbeafe',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            fontFamily: "'Outfit', sans-serif",
-            fontSize: '0.78rem',
-            fontWeight: 650,
-            whiteSpace: 'nowrap',
-            boxShadow: '0 8px 24px rgba(30,41,59,0.16)',
-            transition: 'all .2s ease',
-          }}
-          onMouseEnter={event => {
-            event.currentTarget.style.transform = 'translateY(-1px)'
-            event.currentTarget.style.borderColor = 'rgba(103,232,249,0.42)'
-          }}
-          onMouseLeave={event => {
-            event.currentTarget.style.transform = 'translateY(0)'
-            event.currentTarget.style.borderColor = 'rgba(99,102,241,0.28)'
-          }}
         >
-          <span style={{ fontSize: '0.95rem' }}>👤</span>
-          Create / Edit Profile
+          <span>👤</span>
+          <span className="db-profile-cta-text">Create / Edit Profile</span>
         </button>
 
         <button
           type="button"
+          className="db-icon-btn db-message-btn"
           onClick={() => router.push('/chatting')}
-          title="Open messages"
-          style={{
-            width: '38px',
-            height: '38px',
-            borderRadius: '11px',
-            border: '1px solid rgba(255,255,255,0.07)',
-            background: 'rgba(255,255,255,0.03)',
-            color: '#cbd5e1',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '0.95rem',
-          }}
+          aria-label="Messages"
         >
           💬
         </button>
 
-        <div ref={notificationRef} style={{ position: 'relative' }}>
+        <div ref={notificationRef} className="db-anchor">
           <button
             type="button"
-            onClick={handleNotificationClick}
-            title="Pending buddy requests"
-            style={{
-              width: '36px', height: '36px', borderRadius: '10px',
-              border: notificationOpen ? '1px solid rgba(99,102,241,0.45)' : '1px solid rgba(255,255,255,0.07)',
-              background: notificationOpen ? 'rgba(99,102,241,0.14)' : 'rgba(255,255,255,0.03)',
-              color: '#cbd5e1', cursor: 'pointer', display: 'flex', alignItems: 'center',
-              justifyContent: 'center', fontSize: '0.95rem', position: 'relative', transition: 'all 0.2s',
+            className={`db-icon-btn ${notificationOpen ? 'active' : ''}`}
+            onClick={async () => {
+              const next = !notificationOpen
+              setNotificationOpen(next)
+              setProfileOpen(false)
+
+              if (next) {
+                await loadPendingRequests()
+              }
             }}
+            aria-label="Pending requests"
           >
             🔔
             {pendingRequests.length > 0 && (
-              <span
-                style={{
-                  position: 'absolute', top: '-5px', right: '-5px', minWidth: '17px', height: '17px',
-                  borderRadius: '999px', background: 'linear-gradient(135deg, #6366f1, #22d3ee)',
-                  color: '#fff', fontFamily: "'Outfit', sans-serif", fontSize: '0.62rem', fontWeight: 700,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1.5px solid #060912', padding: '0 4px',
-                }}
-              >
+              <span className="db-badge">
                 {pendingRequests.length > 9 ? '9+' : pendingRequests.length}
               </span>
             )}
           </button>
 
           {notificationOpen && (
-            <div
-              style={{
-                position: 'absolute', top: '46px', right: 0, width: '330px', borderRadius: '14px',
-                background: '#0b1020', border: '1px solid rgba(255,255,255,0.08)',
-                boxShadow: '0 16px 40px rgba(0,0,0,0.4)', overflow: 'hidden', zIndex: 999,
-              }}
-            >
-              <div
-                style={{
-                  padding: '14px 15px', borderBottom: '1px solid rgba(255,255,255,0.07)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                }}
-              >
+            <div className="db-notification-menu">
+              <div className="db-popover-head">
                 <div>
-                  <div style={{ color: '#f8fafc', fontFamily: "'Outfit', sans-serif", fontSize: '0.9rem', fontWeight: 700 }}>
-                    Pending Requests
-                  </div>
-                  <div style={{ color: 'rgba(148,163,184,0.65)', fontFamily: "'Outfit', sans-serif", fontSize: '0.72rem', marginTop: '2px' }}>
-                    Buddy requests waiting for you
-                  </div>
+                  <strong>Pending Requests</strong>
+                  <small>Buddy requests waiting for you</small>
                 </div>
                 <button
                   type="button"
-                  onClick={loadPendingRequests}
+                  onClick={() => void loadPendingRequests()}
                   disabled={notificationsLoading}
-                  style={{
-                    border: 'none', background: 'transparent', color: '#67e8f9', cursor: notificationsLoading ? 'wait' : 'pointer',
-                    fontSize: '0.78rem', fontFamily: "'Outfit', sans-serif", opacity: notificationsLoading ? 0.55 : 1,
-                  }}
                 >
                   Refresh
                 </button>
               </div>
 
-              <div style={{ maxHeight: '320px', overflowY: 'auto' }}>
+              <div className="db-request-list">
                 {notificationsLoading && (
-                  <div style={{ padding: '24px 16px', textAlign: 'center', color: 'rgba(148,163,184,0.7)', fontFamily: "'Outfit', sans-serif", fontSize: '0.82rem' }}>
-                    Loading pending requests...
-                  </div>
+                  <div className="db-empty">Loading requests…</div>
                 )}
 
                 {!notificationsLoading && notificationError && (
-                  <div style={{ padding: '24px 16px', textAlign: 'center', color: '#fca5a5', fontFamily: "'Outfit', sans-serif", fontSize: '0.82rem' }}>
-                    {notificationError}
-                  </div>
+                  <div className="db-error">{notificationError}</div>
                 )}
 
-                {!notificationsLoading && !notificationError && pendingRequests.length === 0 && (
-                  <div style={{ padding: '28px 16px', textAlign: 'center', color: 'rgba(148,163,184,0.7)', fontFamily: "'Outfit', sans-serif", fontSize: '0.82rem' }}>
-                    <div style={{ fontSize: '1.5rem', marginBottom: '8px' }}>✨</div>
-                    No pending buddy requests.
-                  </div>
-                )}
+                {!notificationsLoading &&
+                  !notificationError &&
+                  pendingRequests.length === 0 && (
+                    <div className="db-empty">
+                      ✨ No pending buddy requests.
+                    </div>
+                  )}
 
-                {!notificationsLoading && requestActionError && (
-                  <div
-                    style={{
-                      margin: '10px 12px 0',
-                      padding: '9px 10px',
-                      borderRadius: '9px',
-                      background: 'rgba(239,68,68,0.10)',
-                      border: '1px solid rgba(239,68,68,0.25)',
-                      color: '#fca5a5',
-                      fontFamily: "'Outfit', sans-serif",
-                      fontSize: '0.72rem',
-                    }}
-                  >
+                {!!requestActionError && (
+                  <div className="db-inline-error">
                     {requestActionError}
                   </div>
                 )}
 
-                {!notificationsLoading && pendingRequests.map(request => {
-                  const actionInProgress = requestActionId === String(request.id)
+                {!notificationsLoading &&
+                  pendingRequests.map(request => {
+                    const busy = requestActionId === request.id
 
-                  return (
-                    <div
-                      key={request.id}
-                      style={{
-                        borderBottom: '1px solid rgba(255,255,255,0.05)',
-                        padding: '13px 15px',
-                        display: 'flex',
-                        gap: '10px',
-                        alignItems: 'center',
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: '36px', height: '36px', flexShrink: 0, borderRadius: '10px',
-                          background: 'linear-gradient(135deg, #6366f1, #22d3ee)', display: 'flex',
-                          alignItems: 'center', justifyContent: 'center', color: '#fff',
-                          fontFamily: "'Outfit', sans-serif", fontSize: '0.82rem', fontWeight: 700,
-                        }}
-                      >
-                        {request.senderInitial}
-                      </div>
-
-                      <div style={{ minWidth: 0, flex: 1 }}>
-                        <div style={{ color: '#e2e8f0', fontFamily: "'Outfit', sans-serif", fontSize: '0.82rem', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {request.senderName}
-                        </div>
-                        <div style={{ color: 'rgba(148,163,184,0.65)', fontFamily: "'Outfit', sans-serif", fontSize: '0.72rem', marginTop: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {request.message}
+                    return (
+                      <div className="db-request" key={request.id}>
+                        <div className="db-request-avatar">
+                          {request.senderInitial}
                         </div>
 
-                        <div style={{ display: 'flex', gap: '7px', marginTop: '10px' }}>
-                          <button
-                            type="button"
-                            disabled={actionInProgress}
-                            onClick={() => void handleRequestAction('accept', request)}
-                            style={{
-                              border: '1px solid rgba(34,197,94,0.45)',
-                              background: 'rgba(34,197,94,0.13)',
-                              color: '#86efac',
-                              borderRadius: '7px',
-                              padding: '6px 10px',
-                              fontFamily: "'Outfit', sans-serif",
-                              fontSize: '0.72rem',
-                              fontWeight: 700,
-                              cursor: actionInProgress ? 'wait' : 'pointer',
-                              opacity: actionInProgress ? 0.6 : 1,
-                            }}
-                          >
-                            {actionInProgress ? 'Saving…' : 'Accept'}
-                          </button>
+                        <div className="db-request-copy">
+                          <strong>{request.senderName}</strong>
+                          <span>{request.message}</span>
 
-                          <button
-                            type="button"
-                            disabled={actionInProgress}
-                            onClick={() => void handleRequestAction('reject', request)}
-                            style={{
-                              border: '1px solid rgba(248,113,113,0.38)',
-                              background: 'rgba(248,113,113,0.08)',
-                              color: '#fca5a5',
-                              borderRadius: '7px',
-                              padding: '6px 10px',
-                              fontFamily: "'Outfit', sans-serif",
-                              fontSize: '0.72rem',
-                              fontWeight: 700,
-                              cursor: actionInProgress ? 'wait' : 'pointer',
-                              opacity: actionInProgress ? 0.6 : 1,
-                            }}
-                          >
-                            Reject
-                          </button>
+                          <div>
+                            <button
+                              type="button"
+                              className="accept"
+                              disabled={busy}
+                              onClick={() =>
+                                void handleRequestAction('accept', request)
+                              }
+                            >
+                              {busy ? 'Saving…' : 'Accept'}
+                            </button>
+
+                            <button
+                              type="button"
+                              className="reject"
+                              disabled={busy}
+                              onClick={() =>
+                                void handleRequestAction('reject', request)
+                              }
+                            >
+                              Reject
+                            </button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  )
-                })}
+                    )
+                  })}
               </div>
             </div>
           )}
         </div>
 
-        <div style={{ width: '1px', height: '24px', background: 'rgba(255,255,255,0.07)' }} />
-
-        <div ref={dropdownRef} style={{ position: 'relative' }}>
-          <div
+        <div ref={profileRef} className="db-anchor">
+          <button
+            type="button"
+            className={`db-user-btn ${profileOpen ? 'active' : ''}`}
             onClick={() => {
-              setProfileOpen(prev => !prev)
+              setProfileOpen(current => !current)
               setNotificationOpen(false)
             }}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '10px', padding: '5px 10px 5px 5px',
-              borderRadius: '12px', cursor: 'pointer', transition: 'all 0.2s',
-              border: profileOpen ? '1px solid rgba(255,255,255,0.07)' : '1px solid transparent',
-              background: profileOpen ? 'rgba(255,255,255,0.04)' : 'transparent',
-            }}
-            onMouseEnter={e => {
-              e.currentTarget.style.background = 'rgba(255,255,255,0.04)'
-              e.currentTarget.style.borderColor = 'rgba(255,255,255,0.07)'
-            }}
-            onMouseLeave={e => {
-              if (!profileOpen) {
-                e.currentTarget.style.background = 'transparent'
-                e.currentTarget.style.borderColor = 'transparent'
-              }
-            }}
           >
-            <div style={{ width: '34px', height: '34px', borderRadius: '10px', background: 'linear-gradient(135deg, #6366f1, #22d3ee)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.88rem', fontWeight: 700, color: '#fff', fontFamily: "'Outfit', sans-serif", flexShrink: 0, boxShadow: '0 4px 12px rgba(99,102,241,0.3)' }}>
-              {userInitial}
-            </div>
-            <div>
-              <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: '0.83rem', fontWeight: 600, color: '#e2e8f0', lineHeight: 1.2 }}>
-                {userName}
-              </div>
-              <div style={{ fontFamily: "'Outfit', sans-serif", fontSize: '0.7rem', color: 'rgba(148,163,184,0.5)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#4ade80', display: 'inline-block' }} />
-                Online
-              </div>
-            </div>
-            <span style={{ color: 'rgba(148,163,184,0.35)', fontSize: '0.72rem', marginLeft: '2px', transform: profileOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease' }}>
-              ▾
+            <span className="db-user-avatar">{userInitial}</span>
+
+            <span className="db-user-copy">
+              <strong>{userName}</strong>
+              <small><i /> Online</small>
             </span>
-          </div>
+
+            <span className="db-chevron">▾</span>
+          </button>
 
           {profileOpen && (
-            <div style={{ position: 'absolute', top: '48px', right: 0, width: '214px', borderRadius: '14px', background: '#0b1020', border: '1px solid rgba(255,255,255,0.08)', boxShadow: '0 16px 40px rgba(0,0,0,0.35)', padding: '6px', zIndex: 999 }}>
+            <div className="db-profile-menu">
               <button
                 type="button"
-                onClick={handleProfileClick}
-                style={{ width: '100%', border: 'none', background: 'transparent', color: '#e2e8f0', fontFamily: "'Outfit', sans-serif", fontSize: '0.82rem', fontWeight: 500, padding: '10px 12px', borderRadius: '10px', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '8px' }}
-                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)' }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+                onClick={() => router.push('/profileform')}
               >
-                👤 Create / Edit Profile
+                👤 Profile
               </button>
 
               <button
                 type="button"
-                onClick={() => {
-                  setProfileOpen(false)
-                  router.push('/chatting')
-                }}
-                style={{ width: '100%', border: 'none', background: 'transparent', color: '#e2e8f0', fontFamily: "'Outfit', sans-serif", fontSize: '0.82rem', fontWeight: 500, padding: '10px 12px', borderRadius: '10px', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '8px' }}
-                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)' }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+                onClick={() => router.push('/chatting')}
               >
-                💬 My Messages
+                💬 Messages
               </button>
 
               <button
                 type="button"
-                onClick={() => {
-                  setProfileOpen(false)
-                  router.push('/settings')
-                }}
-                style={{ width: '100%', border: 'none', background: 'transparent', color: '#e2e8f0', fontFamily: "'Outfit', sans-serif", fontSize: '0.82rem', fontWeight: 500, padding: '10px 12px', borderRadius: '10px', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '8px' }}
-                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)' }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+                onClick={() => router.push('/settings')}
               >
                 ⚙️ Settings
               </button>
 
-              <div style={{ height: '1px', background: 'rgba(255,255,255,0.07)', margin: '5px 6px' }} />
+              <div />
 
               <button
                 type="button"
-                onClick={handleLogout}
-                style={{ width: '100%', border: 'none', background: 'transparent', color: '#f87171', fontFamily: "'Outfit', sans-serif", fontSize: '0.82rem', fontWeight: 500, padding: '10px 12px', borderRadius: '10px', cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: '8px' }}
-                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(248,113,113,0.08)' }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
+                className="danger"
+                onClick={logout}
               >
                 🚪 Logout
               </button>
@@ -1079,187 +657,845 @@ function TopBar() {
   )
 }
 
-
-/* ═══════════════════════════════════════════
-   LAYOUT EXPORT
-═══════════════════════════════════════════ */
 export default function DashboardLayout({
   children,
 }: {
   children?: ReactNode
 }) {
   const [collapsed, setCollapsed] = useState(false)
+  const [mobileOpen, setMobileOpen] = useState(false)
+
+  useEffect(() => {
+    try {
+      setCollapsed(
+        localStorage.getItem('myb-sidebar-collapsed') === 'true',
+      )
+    } catch {
+      // Ignore storage errors.
+    }
+  }, [])
+
+  const toggleCollapsed = () => {
+    setCollapsed(current => {
+      const next = !current
+
+      try {
+        localStorage.setItem(
+          'myb-sidebar-collapsed',
+          String(next),
+        )
+      } catch {
+        // Ignore storage errors.
+      }
+
+      return next
+    })
+  }
 
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=Outfit:wght@300;400;500;600;700&display=swap');
-
-        * {
-          box-sizing: border-box;
+        :root {
+          --db-bg: #060912;
+          --db-border: rgba(255,255,255,.07);
+          --db-muted: rgba(148,163,184,.66);
         }
 
-        body {
-          background: #060912;
-          margin: 0;
+        * { box-sizing: border-box; }
+        html, body { margin: 0; background: var(--db-bg); }
+        body { overflow-x: hidden; }
+        button, input { font: inherit; }
+
+        .db-shell {
+          display: flex;
+          min-height: 100svh;
+          color: #e2e8f0;
+          background:
+            radial-gradient(circle at 80% -5%, rgba(99,102,241,.10), transparent 28rem),
+            radial-gradient(circle at 20% 105%, rgba(34,211,238,.06), transparent 25rem),
+            var(--db-bg);
         }
 
-        button {
-          font-family: inherit;
+        .db-sidebar {
+          width: 232px;
+          height: 100svh;
+          flex: 0 0 auto;
+          position: sticky;
+          top: 0;
+          z-index: 40;
+          display: flex;
+          flex-direction: column;
+          background: rgba(5,8,17,.98);
+          border-right: 1px solid var(--db-border);
+          transition: width .25s ease, transform .25s ease;
         }
 
-        input::placeholder {
-          color: rgba(100,116,139,0.48);
+        .db-sidebar.collapsed { width: 72px; }
+
+        .db-brand {
+          min-height: 68px;
+          padding: 14px 12px;
+          border-bottom: 1px solid rgba(255,255,255,.05);
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+        }
+
+        .db-brand-link {
+          min-width: 0;
+          padding: 0;
+          border: 0;
+          background: transparent;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          cursor: pointer;
+        }
+
+        .db-logo {
+          width: 38px;
+          height: 38px;
+          border-radius: 12px;
+          overflow: hidden;
+          display: grid;
+          place-items: center;
+          flex: 0 0 auto;
+          box-shadow: 0 8px 24px rgba(99,102,241,.25);
+        }
+
+        .db-logo img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        }
+
+        .db-brand-name {
+          font-size: 15px;
+          font-weight: 800;
+          white-space: nowrap;
+          background: linear-gradient(90deg,#c7d2fe,#67e8f9);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+        }
+
+        .db-mobile-close { display: none; }
+
+        .db-nav {
+          flex: 1;
+          min-height: 0;
+          padding: 12px 10px;
+          display: flex;
+          flex-direction: column;
+          gap: 5px;
+          overflow-y: auto;
+        }
+
+        .db-nav-item {
+          width: 100%;
+          min-height: 44px;
+          padding: 0 13px;
+          border-radius: 13px;
+          border: 1px solid transparent;
+          background: transparent;
+          color: var(--db-muted);
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          cursor: pointer;
+          transition: .18s ease;
+          position: relative;
+        }
+
+        .db-sidebar.collapsed .db-nav-item {
+          justify-content: center;
+          padding: 0;
+        }
+
+        .db-nav-item:hover {
+          color: #dbeafe;
+          background: rgba(255,255,255,.045);
+        }
+
+        .db-nav-item.active {
+          color: #eef2ff;
+          border-color: rgba(99,102,241,.22);
+          background: linear-gradient(135deg,rgba(99,102,241,.18),rgba(34,211,238,.07));
+        }
+
+        .db-nav-item.active::before {
+          content: "";
+          position: absolute;
+          left: -1px;
+          top: 10px;
+          bottom: 10px;
+          width: 3px;
+          border-radius: 99px;
+          background: linear-gradient(#818cf8,#22d3ee);
+        }
+
+        .db-nav-icon {
+          width: 20px;
+          flex: 0 0 auto;
+          text-align: center;
+          font-size: 16px;
+        }
+
+        .db-nav-label {
+          min-width: 0;
+          flex: 1;
+          text-align: left;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          font-size: 13px;
+          font-weight: 600;
+        }
+
+        .db-sidebar-footer {
+          padding: 12px 10px;
+          border-top: 1px solid rgba(255,255,255,.05);
+        }
+
+        .db-collapse {
+          width: 100%;
+          min-height: 40px;
+          border-radius: 12px;
+          border: 1px solid var(--db-border);
+          background: rgba(255,255,255,.03);
+          color: rgba(203,213,225,.64);
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+        }
+
+        .db-collapse:hover {
+          color: #c7d2fe;
+          background: rgba(99,102,241,.10);
+        }
+
+        .db-collapse-arrow {
+          font-size: 20px;
+          line-height: 1;
+        }
+
+        .db-backdrop { display: none; }
+
+        .db-content {
+          min-width: 0;
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+        }
+
+        .db-topbar {
+          min-height: 64px;
+          padding: 10px 22px;
+          position: sticky;
+          top: 0;
+          z-index: 30;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 14px;
+          background: rgba(6,9,18,.88);
+          border-bottom: 1px solid rgba(255,255,255,.05);
+          backdrop-filter: blur(20px);
+          -webkit-backdrop-filter: blur(20px);
+        }
+
+        .db-mobile-menu {
+          display: none;
+          width: 40px;
+          height: 40px;
+          border-radius: 12px;
+          border: 1px solid var(--db-border);
+          background: rgba(255,255,255,.035);
+          color: #cbd5e1;
+          cursor: pointer;
+        }
+
+        .db-search {
+          width: min(420px,38vw);
+          flex: 0 1 420px;
+          position: relative;
+        }
+
+        .db-search > span {
+          position: absolute;
+          left: 13px;
+          top: 50%;
+          transform: translateY(-50%);
+          color: rgba(148,163,184,.5);
+          pointer-events: none;
+        }
+
+        .db-search input {
+          width: 100%;
+          height: 42px;
+          padding: 0 44px 0 38px;
+          border-radius: 13px;
+          border: 1px solid rgba(255,255,255,.07);
+          outline: 0;
+          background: rgba(255,255,255,.035);
+          color: #e2e8f0;
+          font-size: 13px;
+        }
+
+        .db-search input:focus {
+          border-color: rgba(129,140,248,.42);
+          background: rgba(99,102,241,.07);
+          box-shadow: 0 0 0 3px rgba(99,102,241,.09);
+        }
+
+        .db-search input::placeholder {
+          color: rgba(100,116,139,.6);
+        }
+
+        .db-search button {
+          position: absolute;
+          right: 5px;
+          top: 50%;
+          transform: translateY(-50%);
+          width: 32px;
+          height: 32px;
+          border-radius: 10px;
+          border: 1px solid rgba(99,102,241,.2);
+          background: linear-gradient(135deg,rgba(99,102,241,.9),rgba(34,211,238,.7));
+          color: white;
+          cursor: pointer;
+        }
+
+        .db-top-actions {
+          min-width: 0;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .db-profile-cta,
+        .db-icon-btn,
+        .db-user-btn {
+          border: 1px solid rgba(255,255,255,.07);
+          background: rgba(255,255,255,.035);
+          color: #dbeafe;
+          cursor: pointer;
+        }
+
+        .db-profile-cta {
+          height: 40px;
+          padding: 0 13px;
+          border-radius: 12px;
+          display: flex;
+          align-items: center;
+          gap: 7px;
+          font-size: 12px;
+          font-weight: 700;
+        }
+
+        .db-icon-btn {
+          width: 40px;
+          height: 40px;
+          border-radius: 12px;
+          display: grid;
+          place-items: center;
+          position: relative;
+        }
+
+        .db-icon-btn:hover,
+        .db-icon-btn.active {
+          border-color: rgba(129,140,248,.30);
+          background: rgba(99,102,241,.10);
+        }
+
+        .db-badge {
+          position: absolute;
+          top: -5px;
+          right: -5px;
+          min-width: 18px;
+          height: 18px;
+          padding: 0 4px;
+          border-radius: 99px;
+          display: grid;
+          place-items: center;
+          background: linear-gradient(135deg,#6366f1,#22d3ee);
+          color: white;
+          font-size: 10px;
+          font-weight: 800;
+          border: 2px solid #060912;
+        }
+
+        .db-anchor { position: relative; }
+
+        .db-user-btn {
+          min-width: 0;
+          height: 44px;
+          padding: 4px 8px 4px 4px;
+          border-radius: 13px;
+          background: transparent;
+          border-color: transparent;
+          display: flex;
+          align-items: center;
+          gap: 9px;
+        }
+
+        .db-user-btn:hover,
+        .db-user-btn.active {
+          background: rgba(255,255,255,.04);
+          border-color: rgba(255,255,255,.07);
+        }
+
+        .db-user-avatar {
+          width: 34px;
+          height: 34px;
+          flex: 0 0 auto;
+          border-radius: 10px;
+          display: grid;
+          place-items: center;
+          background: linear-gradient(135deg,#6366f1,#22d3ee);
+          color: white;
+          font-size: 13px;
+          font-weight: 800;
+        }
+
+        .db-user-copy {
+          min-width: 0;
+          max-width: 130px;
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+        }
+
+        .db-user-copy strong {
+          width: 100%;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          color: #e2e8f0;
+          font-size: 12px;
+        }
+
+        .db-user-copy small {
+          color: rgba(148,163,184,.55);
+          font-size: 10px;
+          display: flex;
+          align-items: center;
+          gap: 4px;
+        }
+
+        .db-user-copy i {
+          width: 5px;
+          height: 5px;
+          border-radius: 50%;
+          background: #4ade80;
+        }
+
+        .db-chevron {
+          color: rgba(148,163,184,.45);
+          font-size: 11px;
+        }
+
+        .db-profile-menu,
+        .db-notification-menu {
+          position: absolute;
+          right: 0;
+          top: calc(100% + 10px);
+          z-index: 80;
+          border: 1px solid rgba(255,255,255,.08);
+          background: rgba(9,14,28,.98);
+          box-shadow: 0 22px 60px rgba(0,0,0,.45);
+          backdrop-filter: blur(20px);
+        }
+
+        .db-profile-menu {
+          width: 220px;
+          padding: 6px;
+          border-radius: 15px;
+        }
+
+        .db-profile-menu button {
+          width: 100%;
+          min-height: 40px;
+          padding: 0 11px;
+          border: 0;
+          border-radius: 10px;
+          background: transparent;
+          color: #dbeafe;
+          text-align: left;
+          cursor: pointer;
+          font-size: 12px;
+          font-weight: 600;
+        }
+
+        .db-profile-menu button:hover {
+          background: rgba(255,255,255,.055);
+        }
+
+        .db-profile-menu button.danger { color: #fca5a5; }
+
+        .db-profile-menu > div {
+          height: 1px;
+          margin: 5px 6px;
+          background: rgba(255,255,255,.07);
+        }
+
+        .db-notification-menu {
+          width: min(350px,calc(100vw - 24px));
+          border-radius: 16px;
+          overflow: hidden;
+        }
+
+        .db-popover-head {
+          padding: 14px;
+          border-bottom: 1px solid rgba(255,255,255,.07);
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+        }
+
+        .db-popover-head > div {
+          min-width: 0;
+          display: flex;
+          flex-direction: column;
+        }
+
+        .db-popover-head strong {
+          color: #f8fafc;
+          font-size: 13px;
+        }
+
+        .db-popover-head small {
+          margin-top: 2px;
+          color: rgba(148,163,184,.62);
+          font-size: 10px;
+        }
+
+        .db-popover-head button {
+          border: 0;
+          background: transparent;
+          color: #67e8f9;
+          cursor: pointer;
+          font-size: 11px;
+          font-weight: 700;
+        }
+
+        .db-request-list {
+          max-height: min(390px,60vh);
+          overflow-y: auto;
+        }
+
+        .db-empty,
+        .db-error {
+          padding: 26px 14px;
+          text-align: center;
+          color: rgba(148,163,184,.7);
+          font-size: 12px;
+        }
+
+        .db-error { color: #fca5a5; }
+
+        .db-inline-error {
+          margin: 10px;
+          padding: 9px 10px;
+          border-radius: 10px;
+          border: 1px solid rgba(239,68,68,.2);
+          background: rgba(239,68,68,.08);
+          color: #fca5a5;
+          font-size: 11px;
+        }
+
+        .db-request {
+          display: flex;
+          gap: 10px;
+          padding: 13px 14px;
+          border-bottom: 1px solid rgba(255,255,255,.05);
+        }
+
+        .db-request-avatar {
+          width: 38px;
+          height: 38px;
+          flex: 0 0 auto;
+          border-radius: 11px;
+          display: grid;
+          place-items: center;
+          background: linear-gradient(135deg,#6366f1,#22d3ee);
+          color: white;
+          font-size: 12px;
+          font-weight: 800;
+        }
+
+        .db-request-copy {
+          min-width: 0;
+          flex: 1;
+        }
+
+        .db-request-copy > strong,
+        .db-request-copy > span {
+          display: block;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .db-request-copy > strong {
+          color: #e2e8f0;
+          font-size: 12px;
+        }
+
+        .db-request-copy > span {
+          margin-top: 3px;
+          color: rgba(148,163,184,.62);
+          font-size: 10px;
+        }
+
+        .db-request-copy > div {
+          display: flex;
+          gap: 7px;
+          margin-top: 9px;
+        }
+
+        .db-request-copy button {
+          padding: 6px 10px;
+          border-radius: 8px;
+          font-size: 10px;
+          font-weight: 800;
+          cursor: pointer;
+        }
+
+        .db-request-copy .accept {
+          border: 1px solid rgba(34,197,94,.35);
+          background: rgba(34,197,94,.10);
+          color: #86efac;
+        }
+
+        .db-request-copy .reject {
+          border: 1px solid rgba(248,113,113,.30);
+          background: rgba(248,113,113,.08);
+          color: #fca5a5;
+        }
+
+        .db-main {
+          flex: 1;
+          min-width: 0;
+          padding: 22px;
+        }
+
+        .db-main-surface {
+          min-height: calc(100svh - 108px);
+          padding: 24px;
+          border-radius: 22px;
+          border: 1px solid rgba(255,255,255,.055);
+          background: rgba(10,15,29,.58);
+          box-shadow: 0 24px 64px rgba(0,0,0,.20);
+          backdrop-filter: blur(14px);
+          overflow: hidden;
+        }
+
+        .db-empty-content {
+          min-height: 55vh;
+          display: grid;
+          place-items: center;
+          text-align: center;
+          color: rgba(148,163,184,.58);
         }
 
         button:focus-visible,
         input:focus-visible {
-          outline: 2px solid rgba(103,232,249,0.7);
+          outline: 2px solid rgba(103,232,249,.72);
           outline-offset: 2px;
         }
 
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb {
+          background: rgba(99,102,241,.22);
+          border-radius: 99px;
+        }
+
+        @media (max-width: 1100px) {
+          .db-profile-cta-text { display: none; }
+          .db-profile-cta {
+            width: 40px;
+            padding: 0;
+            justify-content: center;
+          }
+        }
+
         @media (max-width: 900px) {
-          .desktop-profile-cta {
+          .db-sidebar {
+            position: fixed;
+            inset: 0 auto 0 0;
+            width: min(82vw,300px) !important;
+            transform: translateX(-105%);
+            z-index: 100;
+            box-shadow: 24px 0 70px rgba(0,0,0,.55);
+          }
+
+          .db-sidebar.mobile-open {
+            transform: translateX(0);
+          }
+
+          .db-sidebar .db-brand-name,
+          .db-sidebar .db-nav-label {
+            display: inline;
+          }
+
+          .db-sidebar .db-nav-item {
+            justify-content: flex-start;
+            padding: 0 13px;
+          }
+
+          .db-sidebar-footer { display: none; }
+
+          .db-mobile-close {
+            display: grid;
+            place-items: center;
+            width: 34px;
+            height: 34px;
+            border-radius: 10px;
+            border: 1px solid rgba(255,255,255,.07);
+            background: rgba(255,255,255,.035);
+            color: #cbd5e1;
+            cursor: pointer;
+          }
+
+          .db-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 90;
+            border: 0;
+            background: rgba(2,6,23,.68);
+            backdrop-filter: blur(3px);
+          }
+
+          .db-backdrop.show { display: block; }
+
+          .db-mobile-menu {
+            display: grid;
+            place-items: center;
+            flex: 0 0 auto;
+          }
+
+          .db-search {
+            flex: 1;
+            width: auto;
+          }
+
+          .db-main { padding: 16px; }
+
+          .db-main-surface {
+            min-height: calc(100svh - 96px);
+            padding: 18px;
+            border-radius: 18px;
+          }
+        }
+
+        @media (max-width: 700px) {
+          .db-topbar {
+            min-height: auto;
+            padding: 10px 12px;
+            gap: 9px;
+            flex-wrap: wrap;
+          }
+
+          .db-mobile-menu { order: 1; }
+
+          .db-top-actions {
+            order: 2;
+            margin-left: auto;
+          }
+
+          .db-search {
+            order: 3;
+            flex-basis: 100%;
+            width: 100%;
+          }
+
+          .db-profile-cta,
+          .db-user-copy,
+          .db-chevron {
             display: none;
           }
-        }
 
-        ::-webkit-scrollbar {
-          width: 4px;
-        }
-
-        ::-webkit-scrollbar-track {
-          background: transparent;
-        }
-
-        ::-webkit-scrollbar-thumb {
-          background: rgba(99,102,241,0.22);
-          border-radius: 999px;
-        }
-
-        @keyframes fadeSlideUp {
-          from {
-            opacity: 0;
-            transform: translateY(10px);
+          .db-user-btn {
+            width: 40px;
+            height: 40px;
+            padding: 3px;
+            justify-content: center;
           }
 
-          to {
-            opacity: 1;
-            transform: translateY(0);
+          .db-user-avatar {
+            width: 32px;
+            height: 32px;
+          }
+
+          .db-profile-menu {
+            position: fixed;
+            top: 66px;
+            right: 12px;
+          }
+
+          .db-notification-menu {
+            position: fixed;
+            top: 66px;
+            left: 12px;
+            right: 12px;
+            width: auto;
+          }
+
+          .db-main { padding: 10px; }
+
+          .db-main-surface {
+            min-height: calc(100svh - 118px);
+            padding: 12px;
+            border-radius: 16px;
+          }
+        }
+
+        @media (max-width: 420px) {
+          .db-message-btn { display: none; }
+          .db-top-actions { gap: 5px; }
+
+          .db-main { padding: 0; }
+
+          .db-main-surface {
+            padding: 10px;
+            border-left: 0;
+            border-right: 0;
+            border-radius: 0;
+          }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          *, *::before, *::after {
+            transition-duration: .01ms !important;
+            animation-duration: .01ms !important;
+            animation-iteration-count: 1 !important;
           }
         }
       `}</style>
 
-      <div
-        style={{
-          display: 'flex',
-          minHeight: '100vh',
-          background: '#060912',
-          position: 'relative',
-        }}
-      >
-        {/* Background orbs */}
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            pointerEvents: 'none',
-            zIndex: 0,
-          }}
-        >
-          <div
-            style={{
-              position: 'absolute',
-              top: '-15%',
-              right: '8%',
-              width: '500px',
-              height: '500px',
-              borderRadius: '50%',
-              background:
-                'radial-gradient(circle, rgba(99,102,241,0.08) 0%, transparent 65%)',
-            }}
-          />
-
-          <div
-            style={{
-              position: 'absolute',
-              bottom: '-10%',
-              left: '18%',
-              width: '400px',
-              height: '400px',
-              borderRadius: '50%',
-              background:
-                'radial-gradient(circle, rgba(34,211,238,0.06) 0%, transparent 65%)',
-            }}
-          />
-        </div>
-
+      <div className="db-shell">
         <Sidebar
           collapsed={collapsed}
-          onToggle={() => setCollapsed(current => !current)}
+          mobileOpen={mobileOpen}
+          onToggle={toggleCollapsed}
+          onCloseMobile={() => setMobileOpen(false)}
         />
 
-        <div
-          style={{
-            flex: 1,
-            display: 'flex',
-            flexDirection: 'column',
-            minWidth: 0,
-            position: 'relative',
-            zIndex: 1,
-            overflow: 'hidden',
-          }}
-        >
-          <TopBar />
+        <div className="db-content">
+          <TopBar onOpenMobile={() => setMobileOpen(true)} />
 
-          <main
-            style={{
-              flex: 1,
-              padding: '24px',
-              overflowY: 'auto',
-              overflowX: 'hidden',
-            }}
-          >
-            <div
-              style={{
-                minHeight: 'calc(100vh - 62px - 48px)',
-                background: 'rgba(12,18,35,0.55)',
-                border: '1px solid rgba(255,255,255,0.05)',
-                borderRadius: '20px',
-                padding: '28px',
-                backdropFilter: 'blur(14px)',
-                boxShadow:
-                  '0 24px 64px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.04)',
-                animation: 'fadeSlideUp 0.4s ease both',
-              }}
-            >
+          <main className="db-main">
+            <section className="db-main-surface">
               {children ?? (
-                <div
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    height: '60vh',
-                    gap: '16px',
-                    opacity: 0.25,
-                  }}
-                >
-                  <div style={{ fontSize: '3rem' }}>🤝</div>
-
-                  <p
-                    style={{
-                      fontFamily: "'Outfit', sans-serif",
-                      color: '#94a3b8',
-                      fontSize: '0.9rem',
-                      margin: 0,
-                    }}
-                  >
-                    Your content goes here
-                  </p>
+                <div className="db-empty-content">
+                  <div>🤝<br />Your content goes here</div>
                 </div>
               )}
-            </div>
+            </section>
           </main>
         </div>
       </div>

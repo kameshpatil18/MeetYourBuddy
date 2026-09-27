@@ -2,7 +2,10 @@
 
 'use client'
 
+/* eslint-disable @next/next/no-img-element */
+
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Message = {
@@ -123,16 +126,34 @@ type OffProduct = {
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const CHAT_API_BASE = (
-  process.env.NEXT_PUBLIC_CHAT_API_URL || 'https://localhost:7250'
+  process.env.NEXT_PUBLIC_CHAT_API_URL ||
+  (process.env.NODE_ENV === 'development'
+    ? 'https://localhost:7250'
+    : '')
 ).replace(/\/+$/, '')
-const SIGNALR_HUB = `${CHAT_API_BASE}/chatHub`
-const EXERCISE_DB_BASE = 'https://oss.exercisedb.dev/api/v1'
+
+const REQUEST_TIMEOUT_MS = 15_000
+const STATUS_TIMEOUT_MS = 8_000
+const AI_STREAM_TIMEOUT_MS = 75_000
+
+function chatApiUrl(path: string): string {
+  if (!CHAT_API_BASE) {
+    throw new Error(
+      'Chat API is not configured. Set NEXT_PUBLIC_CHAT_API_URL.',
+    )
+  }
+
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  return `${CHAT_API_BASE}${normalizedPath}`
+}
+
+const SIGNALR_HUB = CHAT_API_BASE ? `${CHAT_API_BASE}/chatHub` : ''
 const EXERCISE_RESULT_LIMIT = 5
 // Second public API — free, no key required, CORS-friendly. Used for real
 // per-100g nutrition lookups (calories/protein/carbs/fat) with product photos.
 const OPEN_FOOD_FACTS_BASE = 'https://world.openfoodfacts.org'
 const FOOD_RESULT_LIMIT = 5
-const BUDDY_AI_API = `${CHAT_API_BASE}/api/BuddyAi`
+const BUDDY_AI_API = CHAT_API_BASE ? `${CHAT_API_BASE}/api/BuddyAi` : ''
 const GYM_RESULT_LIMIT = 6
 const YOUTUBE_RESULT_LIMIT = 4
 const POPULAR_INDIAN_CITIES = [
@@ -160,15 +181,46 @@ function getToken(): string {
   return (
     localStorage.getItem('token') ||
     localStorage.getItem('authToken') ||
+    localStorage.getItem('accessToken') ||
     sessionStorage.getItem('token') ||
+    sessionStorage.getItem('authToken') ||
+    sessionStorage.getItem('accessToken') ||
     getCookie('token') ||
+    getCookie('authToken') ||
+    getCookie('accessToken') ||
     ''
   )
 }
 
-function decodeJwt(token: string): any {
+function decodeJwt(token: string): Record<string, unknown> | null {
   try {
-    return JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    const parts = token.split('.')
+    if (parts.length < 2 || !parts[1]) return null
+
+    const base64 = parts[1]
+      .replace(/-/g, '+')
+      .replace(/_/g, '/')
+
+    const padded = base64.padEnd(
+      base64.length + ((4 - (base64.length % 4)) % 4),
+      '=',
+    )
+
+    const decoded = decodeURIComponent(
+      Array.from(atob(padded))
+        .map(char =>
+          `%${char.charCodeAt(0).toString(16).padStart(2, '0')}`,
+        )
+        .join(''),
+    )
+
+    const payload: unknown = JSON.parse(decoded)
+
+    return payload &&
+      typeof payload === 'object' &&
+      !Array.isArray(payload)
+      ? (payload as Record<string, unknown>)
+      : null
   } catch {
     return null
   }
@@ -192,7 +244,15 @@ function getUserNameFromToken(token: string): string {
   const p = decodeJwt(token)
   if (!p) return 'Me'
 
-  return p.name || p.unique_name || p.given_name || p.fullName || 'Me'
+  const candidate =
+    p.name ??
+    p.unique_name ??
+    p.given_name ??
+    p.fullName
+
+  return typeof candidate === 'string' && candidate.trim()
+    ? candidate.trim()
+    : 'Me'
 }
 
 function getStoredUserName(): string {
@@ -222,14 +282,56 @@ function getStoredUserName(): string {
   return ''
 }
 
-async function readJson(res: Response): Promise<any> {
-  const t = await res.text()
-  if (!t) return null
+async function readJson(res: Response): Promise<unknown> {
+  const text = await res.text()
+  if (!text) return null
 
   try {
-    return JSON.parse(t)
+    return JSON.parse(text)
   } catch {
-    return t
+    return text
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function getRecordValue(
+  value: unknown,
+  keys: readonly string[],
+): unknown {
+  if (!isRecord(value)) return undefined
+
+  for (const key of keys) {
+    if (key in value) return value[key]
+  }
+
+  return undefined
+}
+
+function getApiMessage(
+  body: unknown,
+  fallbackMessage: string,
+): string {
+  if (typeof body === 'string' && body.trim()) {
+    return body.trim()
+  }
+
+  const message = getRecordValue(body, ['message', 'Message'])
+
+  return typeof message === 'string' && message.trim()
+    ? message.trim()
+    : fallbackMessage
+}
+
+class ApiError extends Error {
+  status: number
+
+  constructor(status: number, message: string) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
   }
 }
 
@@ -239,8 +341,47 @@ async function requireSuccessfulResponse(
 ): Promise<void> {
   if (response.ok) return
 
-  const body = await response.text()
-  throw new Error(body || `${fallbackMessage} returned HTTP ${response.status}`)
+  const body = await readJson(response)
+
+  throw new ApiError(
+    response.status,
+    getApiMessage(
+      body,
+      `${fallbackMessage} returned HTTP ${response.status}`,
+    ),
+  )
+}
+
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+  timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<Response> {
+  const controller = new AbortController()
+  const timeoutId = window.setTimeout(
+    () => controller.abort(),
+    timeoutMs,
+  )
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    })
+  } catch (error) {
+    if (
+      error instanceof DOMException &&
+      error.name === 'AbortError'
+    ) {
+      throw new Error(
+        'The server took too long to respond. Please try again.',
+      )
+    }
+
+    throw error
+  } finally {
+    window.clearTimeout(timeoutId)
+  }
 }
 
 function sanitizeBuddyReply(value: string): string {
@@ -259,15 +400,25 @@ function sanitizeBuddyReply(value: string): string {
   return text
 }
 
-function extractArray(result: any, ...keys: string[]): any[] {
+function extractArray(
+  result: unknown,
+  ...keys: string[]
+): unknown[] {
   if (Array.isArray(result)) return result
+  if (!isRecord(result)) return []
 
   for (const key of keys) {
-    if (Array.isArray(result?.[key])) return result[key]
-    if (Array.isArray(result?.data?.[key])) return result.data[key]
+    const direct = result[key]
+    if (Array.isArray(direct)) return direct
+
+    const data = getRecordValue(result, ['data', 'Data'])
+    if (isRecord(data) && Array.isArray(data[key])) {
+      return data[key] as unknown[]
+    }
   }
 
-  if (Array.isArray(result?.data)) return result.data
+  const data = getRecordValue(result, ['data', 'Data'])
+  if (Array.isArray(data)) return data
 
   return []
 }
@@ -335,10 +486,11 @@ function normalizeServerSuggestions(value: unknown): FollowUpSuggestion[] {
   const seen = new Set<string>()
 
   return value
-    .map((item: any) => ({
-      label: String(item?.label ?? '').trim(),
-      prompt: String(item?.prompt ?? '').trim(),
-      category: item?.category ? String(item.category).trim() : undefined,
+    .filter(isRecord)
+    .map(item => ({
+      label: String(item.label ?? '').trim(),
+      prompt: String(item.prompt ?? '').trim(),
+      category: item.category ? String(item.category).trim() : undefined,
     }))
     .filter(item => {
       if (!item.label || !item.prompt) return false
@@ -648,15 +800,14 @@ async function fetchExerciseDbExercises(
 
     const payload = await readJson(response)
 
-    if (!response.ok) {
-      const errorMessage =
-        typeof payload === 'string'
-          ? payload
-          : payload?.message ||
-            `Exercise search returned HTTP ${response.status}`
-
-      throw new Error(errorMessage)
-    }
+ if (!response.ok) {
+  throw new Error(
+    getApiMessage(
+      payload,
+      `Exercise search returned HTTP ${response.status}`,
+    ),
+  )
+}
 
     return extractExercises(payload).slice(0, EXERCISE_RESULT_LIMIT)
   } finally {
@@ -709,7 +860,7 @@ function shouldQueryExerciseDb(
 // ─── Open Food Facts integration ───────────────────────────────────────────────
 // Second public API, free and key-free. Used for real per-100g nutrition data
 // (calories/protein/carbs/fat) plus a product photo, instead of Buddy AI guessing.
-function shouldQueryOpenFoodFacts(message: string, category: string): boolean {
+function shouldQueryOpenFoodFacts(message: string, _category: string): boolean {
   const text = message.toLowerCase()
 
   const explicitlyRequestsNutritionData =
@@ -816,7 +967,11 @@ function estimateGymFee(priceLevel?: string, city?: string): { fee: string; note
 }
 
 async function fetchGymsByCity(city: string, token: string): Promise<GymResult[]> {
-  const response = await fetch(`${BUDDY_AI_API}/gyms?city=${encodeURIComponent(city)}&limit=${GYM_RESULT_LIMIT}`, {
+  if (!BUDDY_AI_API) {
+    throw new Error('Chat API is not configured.')
+  }
+
+  const response = await fetchWithTimeout(`${BUDDY_AI_API}/gyms?city=${encodeURIComponent(city)}&limit=${GYM_RESULT_LIMIT}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : undefined,
   })
   await requireSuccessfulResponse(response, 'Gym search')
@@ -939,7 +1094,11 @@ function shouldSearchYouTube(message: string): boolean {
 }
 
 async function fetchYouTubeVideos(query: string, token: string): Promise<YouTubeVideo[]> {
-  const response = await fetch(`${BUDDY_AI_API}/youtube?q=${encodeURIComponent(query)}&limit=${YOUTUBE_RESULT_LIMIT}`, {
+  if (!BUDDY_AI_API) {
+    throw new Error('Chat API is not configured.')
+  }
+
+  const response = await fetchWithTimeout(`${BUDDY_AI_API}/youtube?q=${encodeURIComponent(query)}&limit=${YOUTUBE_RESULT_LIMIT}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : undefined,
   })
   await requireSuccessfulResponse(response, 'YouTube search')
@@ -978,9 +1137,13 @@ async function fetchBuddyAiReply(
   onDelta?: (text: string) => void,
 ): Promise<AiServerReply> {
   const controller = new AbortController()
-  const timeoutId = window.setTimeout(() => controller.abort(), 45000)
+  const timeoutId = window.setTimeout(() => controller.abort(), AI_STREAM_TIMEOUT_MS)
 
   try {
+    if (!BUDDY_AI_API) {
+      throw new Error('Chat API is not configured.')
+    }
+
     const response = await fetch(`${BUDDY_AI_API}/chat-stream`, {
       method: 'POST',
       headers: {
@@ -1067,34 +1230,6 @@ async function fetchBuddyAiReply(
     }
   } finally {
     window.clearTimeout(timeoutId)
-  }
-}
-
-async function repairIncompleteWorkoutPlan(
-  originalMessage: string,
-  partialReply: string,
-  requestedDays: number | null,
-  history: BotMessage[],
-  profile: FitnessProfile,
-  token: string,
-): Promise<string | null> {
-  if (!requestedDays) return null
-
-  const repairPrompt = `The previous answer was incomplete.
-
-Original user request:
-${originalMessage}
-
-Previous incomplete answer:
-${partialReply}
-
-Rewrite it as a COMPLETE ${requestedDays}-day workout plan. Include Day 1 through Day ${requestedDays}, exercises, sets, reps, rest, warm-up, progression, recovery guidance, and a brief safety note. Return only the corrected complete plan.`
-
-  try {
-    const result = await fetchBuddyAiReply(repairPrompt, history, profile, token)
-    return result.reply || null
-  } catch {
-    return null
   }
 }
 
@@ -1353,6 +1488,8 @@ function Avatar({
       <img
         src={src}
         alt={name || 'User'}
+        loading="lazy"
+        referrerPolicy="no-referrer"
         style={{
           width: size,
           height: size,
@@ -1499,6 +1636,8 @@ function BotCardGallery({ cards }: { cards: BotCard[] }) {
             <img
               src={card.image}
               alt={card.title}
+              loading="lazy"
+              referrerPolicy="no-referrer"
               style={{ width: '100%', height: 104, objectFit: 'cover', display: 'block' }}
             />
           ) : (
@@ -1559,7 +1698,7 @@ function BotCardGallery({ cards }: { cards: BotCard[] }) {
               <a
                 href={card.link}
                 target="_blank"
-                rel="noreferrer"
+                rel="noopener noreferrer"
                 style={{
                   display: 'inline-flex', marginTop: 9, fontSize: 10, fontWeight: 800,
                   color: '#67e8f9', textDecoration: 'none',
@@ -1579,6 +1718,8 @@ function BotCardGallery({ cards }: { cards: BotCard[] }) {
 // Main Page
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function ChatPage() {
+  const router = useRouter()
+
   // Auth
   const [token, setToken] = useState('')
   const [myId, setMyId] = useState(0)
@@ -1594,6 +1735,7 @@ export default function ChatPage() {
   const [sendingMsg, setSendingMsg] = useState(false)
   const [showEmoji, setShowEmoji] = useState(false)
   const [signalRStatus, setSignalRStatus] = useState<'connecting' | 'connected' | 'error'>('connecting')
+  const [chatError, setChatError] = useState('')
 
   // Buddy AI (AI coach)
   const [botMessages, setBotMessages] = useState<BotMessage[]>([
@@ -1634,7 +1776,7 @@ Choose a quick action below or ask me anything about fitness.`,
   const chatEndRef = useRef<HTMLDivElement>(null)
   const botEndRef = useRef<HTMLDivElement>(null)
   const botTranscriptRef = useRef<HTMLDivElement>(null)
-  const signalRRef = useRef<any>(null)
+  const signalRRef = useRef<import('@microsoft/signalr').HubConnection | null>(null)
   const chatInputRef = useRef<HTMLInputElement>(null)
   const botInputRef = useRef<HTMLInputElement>(null)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -1644,15 +1786,40 @@ Choose a quick action below or ask me anything about fitness.`,
   const shouldAutoScrollRef = useRef(true)
 
   // Init auth
+  const handleUnauthorized = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      ;['token', 'authToken', 'accessToken'].forEach(key => {
+        localStorage.removeItem(key)
+        sessionStorage.removeItem(key)
+        document.cookie = `${key}=; Max-Age=0; path=/; SameSite=Lax`
+      })
+    }
+
+    setToken('')
+    setMyId(0)
+    setSignalRStatus('error')
+    router.replace('/login')
+  }, [router])
+
   useEffect(() => {
     const t = getToken()
-    setToken(t)
 
-    if (t) {
-      setMyId(getUserIdFromToken(t))
-      setMyName(getStoredUserName() || getUserNameFromToken(t))
+    if (!t) {
+      handleUnauthorized()
+      return
     }
-  }, [])
+
+    const userId = getUserIdFromToken(t)
+
+    if (!userId) {
+      handleUnauthorized()
+      return
+    }
+
+    setToken(t)
+    setMyId(userId)
+    setMyName(getStoredUserName() || getUserNameFromToken(t))
+  }, [handleUnauthorized])
 
 
 
@@ -1660,18 +1827,51 @@ Choose a quick action below or ask me anything about fitness.`,
     if (!token) return
 
     let cancelled = false
+
     const checkBuddyAi = async () => {
       try {
-        const response = await fetch(`${BUDDY_AI_API}/status`, {
-          headers: { Authorization: `Bearer ${token}` },
-        })
+        if (!BUDDY_AI_API) {
+          if (!cancelled) setBuddyAiOnline(false)
+          return
+        }
+
+        const response = await fetchWithTimeout(
+          `${BUDDY_AI_API}/status`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              Accept: 'application/json',
+            },
+          },
+          STATUS_TIMEOUT_MS,
+        )
+
+        if (response.status === 401) {
+          handleUnauthorized()
+          return
+        }
+
         const data = await readJson(response)
+
         if (!cancelled) {
-          setBuddyAiOnline(response.ok && data?.online === true)
+          const online = getRecordValue(data, ['online', 'Online'])
+          const provider = getRecordValue(data, ['provider', 'Provider'])
+          const model = getRecordValue(data, ['model', 'Model'])
+
+          setBuddyAiOnline(
+            response.ok && online === true,
+          )
+
           setBuddyRuntime(prev => ({
             ...prev,
-            provider: data?.provider ? String(data.provider) : prev.provider,
-            model: data?.model ? String(data.model) : prev.model,
+            provider:
+              typeof provider === 'string'
+                ? provider
+                : prev.provider,
+            model:
+              typeof model === 'string'
+                ? model
+                : prev.model,
           }))
         }
       } catch {
@@ -1679,13 +1879,18 @@ Choose a quick action below or ask me anything about fitness.`,
       }
     }
 
-    checkBuddyAi()
-    const interval = window.setInterval(checkBuddyAi, 30000)
+    void checkBuddyAi()
+
+    const interval = window.setInterval(
+      () => void checkBuddyAi(),
+      30_000,
+    )
+
     return () => {
       cancelled = true
       window.clearInterval(interval)
     }
-  }, [token])
+  }, [token, handleUnauthorized])
 
   const authHeaders = useMemo<Record<string, string>>(
     () => ({
@@ -1749,71 +1954,112 @@ Choose a quick action below or ask me anything about fitness.`,
     if (!token) return
 
     setChatLoading(true)
+    setChatError('')
 
     try {
-      const res = await fetch(`${CHAT_API_BASE}/api/Chat/conversations`, {
-        headers: authHeaders,
-      })
+      const res = await fetchWithTimeout(
+        chatApiUrl('/api/Chat/conversations'),
+        {
+          headers: authHeaders,
+          cache: 'no-store',
+        },
+      )
+
+      await requireSuccessfulResponse(
+        res,
+        'Failed to load conversations',
+      )
 
       const result = await readJson(res)
-      const arr = extractArray(result, 'conversations', 'items', 'data')
+      const arr = extractArray(
+        result,
+        'conversations',
+        'items',
+        'data',
+      )
 
       setConversations(
-        arr.map((c: any) => {
-          const otherUserName = String(
-            c.otherUserName ??
-              c.OtherUserName ??
-              c.userName ??
-              c.UserName ??
-              c.name ??
-              c.Name ??
-              'Buddy',
-          ).trim()
+        arr
+          .filter(isRecord)
+          .map(c => {
+            const otherUserName = String(
+              c.otherUserName ??
+                c.OtherUserName ??
+                c.userName ??
+                c.UserName ??
+                c.name ??
+                c.Name ??
+                'Buddy',
+            ).trim()
 
-          return {
-            userId: Number(c.otherUserId ?? c.OtherUserId ?? c.userId ?? c.UserId ?? 0),
-            userName: otherUserName || 'Buddy',
-            userPhoto:
-              c.otherUserPhoto ??
-              c.OtherUserPhoto ??
-              c.userPhoto ??
-              c.UserPhoto ??
-              c.profileImage ??
-              c.ProfileImage ??
-              '',
-            lastMessage:
-              c.lastMessage ??
-              c.LastMessage ??
-              c.lastMessageText ??
-              c.LastMessageText ??
-              '',
-            lastMessageDate:
-              c.lastMessageTime ??
-              c.LastMessageTime ??
-              c.lastMessageDate ??
-              c.LastMessageDate ??
-              c.createdDate ??
-              c.CreatedDate ??
-              '',
-            unreadCount: Number(c.unreadCount ?? c.UnreadCount ?? 0),
-          }
-        }),
+            return {
+              userId: Number(
+                c.otherUserId ??
+                  c.OtherUserId ??
+                  c.userId ??
+                  c.UserId ??
+                  0,
+              ),
+              userName: otherUserName || 'Buddy',
+              userPhoto: String(
+                c.otherUserPhoto ??
+                  c.OtherUserPhoto ??
+                  c.userPhoto ??
+                  c.UserPhoto ??
+                  c.profileImage ??
+                  c.ProfileImage ??
+                  '',
+              ) || undefined,
+              lastMessage: String(
+                c.lastMessage ??
+                  c.LastMessage ??
+                  c.lastMessageText ??
+                  c.LastMessageText ??
+                  '',
+              ) || undefined,
+              lastMessageDate: String(
+                c.lastMessageTime ??
+                  c.LastMessageTime ??
+                  c.lastMessageDate ??
+                  c.LastMessageDate ??
+                  c.createdDate ??
+                  c.CreatedDate ??
+                  '',
+              ) || undefined,
+              unreadCount: Number(
+                c.unreadCount ??
+                  c.UnreadCount ??
+                  0,
+              ),
+            } satisfies Conversation
+          })
+          .filter(c => c.userId > 0),
       )
-    } catch (e) {
-      console.error('Conversations error:', e)
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        handleUnauthorized()
+        return
+      }
+
+      console.error('Conversations error:', error)
+      setChatError(
+        error instanceof Error
+          ? error.message
+          : 'Unable to load conversations.',
+      )
     } finally {
       setChatLoading(false)
     }
-  }, [token, authHeaders])
+  }, [token, authHeaders, handleUnauthorized])
 
   useEffect(() => {
-    if (token) loadConversations()
+    if (token) void loadConversations()
   }, [token, loadConversations])
 
   // Load chat history
   const loadHistory = useCallback(
     async (otherUserId: number, silent = false) => {
-      if (!token) return
+      if (!token || otherUserId <= 0) return
 
       const el = msgBodyRef.current
       const oldScrollHeight = el?.scrollHeight ?? 0
@@ -1823,80 +2069,156 @@ Choose a quick action below or ask me anything about fitness.`,
       if (!silent) {
         setMsgLoading(true)
         setMessages([])
+        setChatError('')
         shouldAutoScrollRef.current = true
       }
 
       try {
-        const res = await fetch(`${CHAT_API_BASE}/api/Chat/history/${otherUserId}`, {
-          headers: authHeaders,
-        })
+        const res = await fetchWithTimeout(
+          chatApiUrl(`/api/Chat/history/${otherUserId}`),
+          {
+            headers: authHeaders,
+            cache: 'no-store',
+          },
+        )
+
+        await requireSuccessfulResponse(
+          res,
+          'Failed to load chat history',
+        )
 
         const result = await readJson(res)
-        const arr = extractArray(result, 'messages', 'items', 'history')
+        const arr = extractArray(
+          result,
+          'messages',
+          'items',
+          'history',
+        )
 
-        const resolvedMyId = myId || getUserIdFromToken(token)
+        const resolvedMyId =
+          myId || getUserIdFromToken(token)
 
-        const mappedMessages: Message[] = arr.map((m: any) => {
-          const sid = Number(m.senderId ?? m.SenderId ?? 0)
-          const rid = Number(m.receiverId ?? m.ReceiverId ?? 0)
+        const mappedMessages: Message[] = arr
+          .filter(isRecord)
+          .map(m => {
+            const sid = Number(
+              m.senderId ?? m.SenderId ?? 0,
+            )
+            const rid = Number(
+              m.receiverId ?? m.ReceiverId ?? 0,
+            )
 
-          return {
-            id: String(m.id ?? m.Id ?? `${sid}-${rid}-${m.createdDate ?? m.CreatedDate ?? Date.now()}`),
-            senderId: sid,
-            receiverId: rid,
-            message:
-              m.messageText ??
-              m.MessageText ??
-              m.message ??
-              m.Message ??
-              m.content ??
-              m.Content ??
-              m.text ??
-              m.Text ??
-              '',
-            createdDate: m.createdDate ?? m.CreatedDate ?? now(),
-            isMine: sid === resolvedMyId,
-          }
-        })
+            const createdDate = String(
+              m.createdDate ??
+                m.CreatedDate ??
+                m.sentAt ??
+                m.SentAt ??
+                now(),
+            )
+
+            return {
+              id: String(
+                m.id ??
+                  m.Id ??
+                  m.messageId ??
+                  m.MessageId ??
+                  `${sid}-${rid}-${createdDate}`,
+              ),
+              senderId: sid,
+              receiverId: rid,
+              message: String(
+                m.messageText ??
+                  m.MessageText ??
+                  m.message ??
+                  m.Message ??
+                  m.content ??
+                  m.Content ??
+                  m.text ??
+                  m.Text ??
+                  '',
+              ),
+              createdDate,
+              isMine: sid === resolvedMyId,
+            }
+          })
+          .filter(
+            message =>
+              message.senderId > 0 &&
+              message.receiverId > 0,
+          )
 
         setMessages(prev => {
-          if (messagesKey(prev) === messagesKey(mappedMessages)) {
+          if (
+            messagesKey(prev) ===
+            messagesKey(mappedMessages)
+          ) {
             return prev
           }
 
           return mappedMessages
         })
 
-        // If polling refreshed while user is reading old messages, keep same visible position.
         if (silent && el && !wasNearBottom) {
           requestAnimationFrame(() => {
             const newScrollHeight = el.scrollHeight
-            const diff = newScrollHeight - oldScrollHeight
+            const diff =
+              newScrollHeight - oldScrollHeight
             el.scrollTop = oldScrollTop + diff
           })
         }
-      } catch (e) {
-        console.error('History error:', e)
+      } catch (error) {
+        if (
+          error instanceof ApiError &&
+          error.status === 401
+        ) {
+          handleUnauthorized()
+          return
+        }
+
+        console.error('History error:', error)
+
+        if (!silent) {
+          setChatError(
+            error instanceof Error
+              ? error.message
+              : 'Unable to load chat history.',
+          )
+        }
       } finally {
-        setMsgLoading(false)
+        if (!silent) setMsgLoading(false)
       }
     },
-    [token, authHeaders, myId],
+    [
+      token,
+      authHeaders,
+      myId,
+      handleUnauthorized,
+    ],
   )
 
-  // Keep 2-second polling
+  // Poll as a fallback. When SignalR is healthy, poll less often.
   useEffect(() => {
-    if (!activeConvo) return
+    const activeUserId = activeConvo?.userId
+    if (!activeUserId) return
 
     shouldAutoScrollRef.current = true
-    loadHistory(activeConvo.userId)
+    void loadHistory(activeUserId)
 
-    const interval = setInterval(() => {
-      loadHistory(activeConvo.userId, true)
-    }, 2000)
+    const pollMs =
+      signalRStatus === 'connected'
+        ? 15_000
+        : 3_000
 
-    return () => clearInterval(interval)
-  }, [activeConvo?.userId]) // eslint-disable-line react-hooks/exhaustive-deps
+    const interval = window.setInterval(() => {
+      void loadHistory(activeUserId, true)
+    }, pollMs)
+
+    return () => window.clearInterval(interval)
+  }, [
+    activeConvo?.userId,
+    loadHistory,
+    signalRStatus,
+  ])
 
   // SignalR
   useEffect(() => {
@@ -1908,13 +2230,22 @@ Choose a quick action below or ask me anything about fitness.`,
       try {
         const signalR = await import('@microsoft/signalr')
 
+        if (!SIGNALR_HUB) {
+          setSignalRStatus('error')
+          return
+        }
+
         connection = new signalR.HubConnectionBuilder()
           .withUrl(SIGNALR_HUB, {
             accessTokenFactory: () => token,
-            skipNegotiation: false,
-            transport: signalR.HttpTransportType.WebSockets,
           })
-          .withAutomaticReconnect()
+          .withAutomaticReconnect([
+            0,
+            2_000,
+            5_000,
+            10_000,
+            30_000,
+          ])
           .configureLogging(signalR.LogLevel.Warning)
           .build()
 
@@ -1950,7 +2281,11 @@ Choose a quick action below or ask me anything about fitness.`,
               : messageTextArg ?? ''
 
             const msgDate = isObjectPayload
-              ? senderIdOrObj.createdDate ?? senderIdOrObj.CreatedDate ?? now()
+              ? senderIdOrObj.sentAt ??
+                senderIdOrObj.SentAt ??
+                senderIdOrObj.createdDate ??
+                senderIdOrObj.CreatedDate ??
+                now()
               : createdDateArg ?? now()
 
             if (!sid || !rid || !msgText) return
@@ -1959,7 +2294,15 @@ Choose a quick action below or ask me anything about fitness.`,
             const activeUserId = activeConvo?.userId
 
             const incoming: Message = {
-              id: String(isObjectPayload ? senderIdOrObj.id ?? senderIdOrObj.Id ?? Date.now() : Date.now()),
+              id: String(
+                isObjectPayload
+                  ? senderIdOrObj.messageId ??
+                    senderIdOrObj.MessageId ??
+                    senderIdOrObj.id ??
+                    senderIdOrObj.Id ??
+                    Date.now()
+                  : Date.now(),
+              ),
               senderId: sid,
               receiverId: rid,
               message: msgText,
@@ -1973,9 +2316,31 @@ Choose a quick action below or ask me anything about fitness.`,
                 (sid === resolvedMyId && rid === activeUserId))
 
             if (belongsToActive) {
+              shouldAutoScrollRef.current = true
+
               setMessages(prev => {
-                const exists = prev.some(x => x.id === incoming.id)
+                const exists = prev.some(
+                  x => x.id === incoming.id,
+                )
                 if (exists) return prev
+
+                if (incoming.isMine) {
+                  const optimisticIndex =
+                    prev.findIndex(
+                      item =>
+                        item.id.startsWith('opt-') &&
+                        item.receiverId ===
+                          incoming.receiverId &&
+                        item.message ===
+                          incoming.message,
+                    )
+
+                  if (optimisticIndex >= 0) {
+                    const next = [...prev]
+                    next[optimisticIndex] = incoming
+                    return next
+                  }
+                }
 
                 return [...prev, incoming]
               })
@@ -2001,9 +2366,26 @@ Choose a quick action below or ask me anything about fitness.`,
           },
         )
 
-        connection.onreconnecting(() => setSignalRStatus('connecting'))
-        connection.onreconnected(() => setSignalRStatus('connected'))
-        connection.onclose(() => setSignalRStatus('error'))
+        connection.onreconnecting(() => {
+          setSignalRStatus('connecting')
+        })
+
+        connection.onreconnected(() => {
+          setSignalRStatus('connected')
+          void loadConversations()
+
+          if (activeConvo?.userId) {
+            void loadHistory(
+              activeConvo.userId,
+              true,
+            )
+          }
+        })
+
+        connection.onclose(() => {
+          signalRRef.current = null
+          setSignalRStatus('error')
+        })
 
         await connection.start()
 
@@ -2018,24 +2400,37 @@ Choose a quick action below or ask me anything about fitness.`,
     initSignalR()
 
     return () => {
-      connection?.stop()
-    }
-  }, [token, myId, activeConvo?.userId])
+      if (signalRRef.current === connection) {
+        signalRRef.current = null
+      }
 
-  // Send real message
+      void connection?.stop()
+    }
+  }, [token, myId, activeConvo?.userId, loadConversations, loadHistory])
+
+  // Send real message. Prefer SignalR so both users receive it
+  // immediately; use the REST endpoint as a resilient fallback.
   const sendMessage = async () => {
-    if (!chatInput.trim() || !activeConvo) return
+    if (
+      !chatInput.trim() ||
+      !activeConvo ||
+      sendingMsg
+    ) {
+      return
+    }
 
     const text = chatInput.trim()
+    const receiverId = activeConvo.userId
+
     setChatInput('')
     setSendingMsg(true)
-
+    setChatError('')
     shouldAutoScrollRef.current = true
 
     const optimistic: Message = {
       id: `opt-${Date.now()}`,
       senderId: myId,
-      receiverId: activeConvo.userId,
+      receiverId,
       message: text,
       createdDate: now(),
       isMine: true,
@@ -2045,32 +2440,105 @@ Choose a quick action below or ask me anything about fitness.`,
 
     setConversations(prev =>
       prev.map(c =>
-        c.userId === activeConvo.userId
+        c.userId === receiverId
           ? {
               ...c,
               lastMessage: text,
-              lastMessageDate: optimistic.createdDate,
+              lastMessageDate:
+                optimistic.createdDate,
             }
           : c,
       ),
     )
 
     try {
-      const res = await fetch(`${CHAT_API_BASE}/api/Chat/send`, {
-        method: 'POST',
-        headers: authHeaders,
-        body: JSON.stringify({
-          senderId: myId,
-          receiverId: activeConvo.userId,
-          message: text,
-        }),
-      })
+      const hub = signalRRef.current
 
-      if (!res.ok) throw new Error('Send failed')
-    } catch (e) {
-      console.error('Send message error:', e)
-      setMessages(prev => prev.filter(m => m.id !== optimistic.id))
+      if (
+        hub &&
+        signalRStatus === 'connected'
+      ) {
+        try {
+          await hub.invoke(
+            'SendMessage',
+            receiverId,
+            text,
+          )
+          return
+        } catch (hubError) {
+          console.warn(
+            'SignalR send failed; using REST fallback:',
+            hubError,
+          )
+        }
+      }
+
+      const res = await fetchWithTimeout(
+        chatApiUrl('/api/Chat/send'),
+        {
+          method: 'POST',
+          headers: authHeaders,
+          body: JSON.stringify({
+            receiverId,
+            message: text,
+          }),
+        },
+      )
+
+      await requireSuccessfulResponse(
+        res,
+        'Failed to send message',
+      )
+
+      const result = await readJson(res)
+      const serverId =
+        typeof result === 'number'
+          ? result
+          : Number(
+              getRecordValue(result, [
+                'id',
+                'Id',
+                'messageId',
+                'MessageId',
+              ]) ?? 0,
+            )
+
+      if (serverId > 0) {
+        setMessages(prev =>
+          prev.map(message =>
+            message.id === optimistic.id
+              ? {
+                  ...message,
+                  id: String(serverId),
+                }
+              : message,
+          ),
+        )
+      }
+    } catch (error) {
+      if (
+        error instanceof ApiError &&
+        error.status === 401
+      ) {
+        handleUnauthorized()
+        return
+      }
+
+      console.error('Send message error:', error)
+
+      setMessages(prev =>
+        prev.filter(
+          message =>
+            message.id !== optimistic.id,
+        ),
+      )
+
       setChatInput(text)
+      setChatError(
+        error instanceof Error
+          ? error.message
+          : 'Message could not be sent.',
+      )
     } finally {
       setSendingMsg(false)
     }
@@ -2520,6 +2988,14 @@ Choose a quick action below or ask me anything about fitness.`,
 
       setBotFollowUps(serverSuggestions)
     } catch (error) {
+      if (
+        error instanceof ApiError &&
+        error.status === 401
+      ) {
+        handleUnauthorized()
+        return
+      }
+
       console.warn('Buddy AI request failed:', error)
 
       const fallback = getOfflineFitnessReply(input, category, recentContext)
@@ -2764,7 +3240,7 @@ Choose a quick action below or ask me anything about fitness.`,
           display: grid;
           grid-template-columns: var(--chat-panel-width, 60%) 8px minmax(380px, 1fr);
           grid-template-areas: 'chat divider bot';
-          height: 100vh;
+          height: 100dvh;
           font-family: 'Outfit', sans-serif;
           background: #0c0f1d;
           color: #e2e8f8;
@@ -4180,7 +4656,7 @@ Choose a quick action below or ask me anything about fitness.`,
         @media (max-width: 900px) {
           .chat-root {
             display: block;
-            height: 100vh;
+            height: 100dvh;
           }
 
           .panel-resizer {
@@ -4303,11 +4779,20 @@ Choose a quick action below or ask me anything about fitness.`,
               <div className="bot-header-sub">
                 <span
                   className="bot-status-dot"
-                  style={{ background: buddyAiOnline === false ? '#f59e0b' : '#22c55e' }}
+                  style={{
+                    background:
+                      buddyAiOnline === true
+                        ? '#22c55e'
+                        : buddyAiOnline === false
+                          ? '#f59e0b'
+                          : '#64748b',
+                  }}
                 />
-                {buddyAiOnline === false
-                  ? 'Local model unavailable — live tools still work'
-                  : `Personal fitness assistant for ${myName}`}
+                {buddyAiOnline === null
+                  ? 'Checking Buddy AI availability…'
+                  : buddyAiOnline === false
+                    ? 'AI model unavailable — live tools still work'
+                    : `Personal fitness assistant for ${myName}`}
               </div>
 
               <div className="buddy-runtime">
@@ -4537,7 +5022,12 @@ Choose a quick action below or ask me anything about fitness.`,
               />
             )}
 
-            <button type="button" className="icon-btn" onClick={() => setBotEmoji(v => !v)}>
+            <button
+              type="button"
+              className="icon-btn"
+              aria-label="Open Buddy AI emoji picker"
+              onClick={() => setBotEmoji(v => !v)}
+            >
               😊
             </button>
 
@@ -4563,6 +5053,7 @@ Choose a quick action below or ask me anything about fitness.`,
               className="bot-send-btn"
               onClick={() => sendBotMessage()}
               disabled={botTyping || !botInput.trim()}
+              aria-label="Send message to Buddy AI"
             >
               {botTyping ? (
                 <div
@@ -4630,7 +5121,18 @@ Choose a quick action below or ask me anything about fitness.`,
                     className={`convo-item${activeConvo?.userId === c.userId ? ' active' : ''}`}
                     onClick={() => {
                       shouldAutoScrollRef.current = true
+                      setChatError('')
                       setActiveConvo(c)
+                      setConversations(prev =>
+                        prev.map(item =>
+                          item.userId === c.userId
+                            ? {
+                                ...item,
+                                unreadCount: 0,
+                              }
+                            : item,
+                        ),
+                      )
                     }}
                   >
                     <Avatar name={c.userName} src={c.userPhoto} size={42} />
@@ -4648,6 +5150,24 @@ Choose a quick action below or ask me anything about fitness.`,
           </div>
 
           <div className="msg-area">
+            {chatError && (
+              <div
+                role="alert"
+                style={{
+                  margin: '10px 14px 0',
+                  padding: '9px 11px',
+                  borderRadius: 10,
+                  border: '1px solid rgba(248,113,113,.18)',
+                  background: 'rgba(248,113,113,.07)',
+                  color: '#fecaca',
+                  fontSize: 11,
+                  lineHeight: 1.45,
+                }}
+              >
+                ⚠ {chatError}
+              </div>
+            )}
+
             {!activeConvo ? (
               <div className="no-convo">
                 <div className="no-convo-icon">💬</div>
@@ -4781,7 +5301,12 @@ Choose a quick action below or ask me anything about fitness.`,
                     />
                   )}
 
-                  <button type="button" className="icon-btn" onClick={() => setShowEmoji(v => !v)}>
+                  <button
+                    type="button"
+                    className="icon-btn"
+                    aria-label="Open message emoji picker"
+                    onClick={() => setShowEmoji(v => !v)}
+                  >
                     😊
                   </button>
 
@@ -4805,6 +5330,7 @@ Choose a quick action below or ask me anything about fitness.`,
                     className="chat-send-btn"
                     onClick={sendMessage}
                     disabled={sendingMsg || !chatInput.trim()}
+                    aria-label="Send chat message"
                   >
                     {sendingMsg ? (
                       <div
