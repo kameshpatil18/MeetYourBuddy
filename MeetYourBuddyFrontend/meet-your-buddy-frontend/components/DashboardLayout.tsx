@@ -28,6 +28,10 @@ type PendingRequest = {
 const NAV_ITEMS: NavItemDef[] = [
   { icon: '⌂', label: 'Discover', href: '/dashboard' },
   { icon: '💬', label: 'Messages', href: '/chatting' },
+
+  // NEW
+  { icon: '🎮', label: 'Buddy Games', href: '/buddygames' },
+
   { icon: '👥', label: 'Find Buddies', href: '/usersfilters' },
   { icon: '⚙️', label: 'Settings', href: '/settings' },
 ]
