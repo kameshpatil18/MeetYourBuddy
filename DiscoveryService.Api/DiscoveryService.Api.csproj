@@ -4,6 +4,11 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+	  <ServerGarbageCollection>false</ServerGarbageCollection>
+	  <AspNetCoreHostingModel>OutOfProcess</AspNetCoreHostingModel>
+	  <RuntimeIdentifier>win-x86</RuntimeIdentifier>
+	  <SelfContained>true</SelfContained>
+    <UserSecretsId>53704e40-3e32-4bf4-9df8-884d5fa3e2af</UserSecretsId>
   </PropertyGroup>
 
 	<ItemGroup>

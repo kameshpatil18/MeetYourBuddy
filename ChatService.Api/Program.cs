@@ -14,18 +14,25 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Data.SqlClient;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
-using Shared.Common.Models;
 using System.Data;
+using System.Security.Cryptography;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-#region Services
+#region Controllers / Core Services
 
 builder.Services.AddControllers();
+
 builder.Services.AddEndpointsApiExplorer();
+
 builder.Services.AddHttpClient();
+
 builder.Services.AddSignalR();
+
+#endregion
+
+#region Ollama HttpClient
 
 builder.Services.AddHttpClient(
     "Ollama",
@@ -40,51 +47,113 @@ builder.Services.AddHttpClient(
 
 builder.Services.AddSwaggerGen(options =>
 {
-    options.SwaggerDoc("v1", new OpenApiInfo
-    {
-        Title = "Chat Service API",
-        Version = "v1"
-    });
-
-    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
-    {
-        Name = "Authorization",
-        Type = SecuritySchemeType.Http,
-        Scheme = "bearer",
-        BearerFormat = "JWT",
-        In = ParameterLocation.Header,
-        Description = "Enter JWT token only. Swagger will add Bearer automatically."
-    });
-
-    options.AddSecurityRequirement(new OpenApiSecurityRequirement
-    {
+    options.SwaggerDoc(
+        "v1",
+        new OpenApiInfo
         {
-            new OpenApiSecurityScheme
+            Title = "MeetYourBuddy Chat Service API",
+            Version = "v1",
+            Description =
+                "Chat, SignalR and Buddy AI service for MeetYourBuddy"
+        });
+
+    options.AddSecurityDefinition(
+        "Bearer",
+        new OpenApiSecurityScheme
+        {
+            Name = "Authorization",
+
+            Type = SecuritySchemeType.Http,
+
+            Scheme = "bearer",
+
+            BearerFormat = "JWT",
+
+            In = ParameterLocation.Header,
+
+            Description =
+                "Enter your JWT token. Swagger will add Bearer automatically."
+        });
+
+    options.AddSecurityRequirement(
+        new OpenApiSecurityRequirement
+        {
             {
-                Reference = new OpenApiReference
+                new OpenApiSecurityScheme
                 {
-                    Type = ReferenceType.SecurityScheme,
-                    Id = "Bearer"
-                }
-            },
-            Array.Empty<string>()
-        }
-    });
+                    Reference = new OpenApiReference
+                    {
+                        Type = ReferenceType.SecurityScheme,
+                        Id = "Bearer"
+                    }
+                },
+                Array.Empty<string>()
+            }
+        });
 });
+
+#endregion
+
+#region Swagger Basic Authentication
+
+/*
+ * Local development:
+ *
+ * SwaggerAuth:Username
+ * SwaggerAuth:Password
+ *
+ * Store them with dotnet user-secrets.
+ *
+ * Production:
+ *
+ * SwaggerAuth__Username
+ * SwaggerAuth__Password
+ */
+
+var swaggerUsername =
+    builder.Configuration["SwaggerAuth:Username"];
+
+var swaggerPassword =
+    builder.Configuration["SwaggerAuth:Password"];
+
+if (string.IsNullOrWhiteSpace(swaggerUsername))
+{
+    throw new InvalidOperationException(
+        "SwaggerAuth:Username configuration is missing.");
+}
+
+if (string.IsNullOrWhiteSpace(swaggerPassword))
+{
+    throw new InvalidOperationException(
+        "SwaggerAuth:Password configuration is missing.");
+}
 
 #endregion
 
 #region MediatR
 
 builder.Services.AddMediatR(cfg =>
-    cfg.RegisterServicesFromAssembly(typeof(ApplicationAssemblyReference).Assembly));
+{
+    cfg.RegisterServicesFromAssembly(
+        typeof(ApplicationAssemblyReference).Assembly);
+});
 
 #endregion
 
 #region Database
 
+var connectionString =
+    builder.Configuration.GetConnectionString(
+        "DefaultConnection");
+
+if (string.IsNullOrWhiteSpace(connectionString))
+{
+    throw new InvalidOperationException(
+        "ConnectionStrings:DefaultConnection is missing.");
+}
+
 builder.Services.AddScoped<IDbConnection>(_ =>
-    new SqlConnection(builder.Configuration.GetConnectionString("DefaultConnection")));
+    new SqlConnection(connectionString));
 
 builder.Services.AddSingleton<DapperContext>();
 
@@ -92,113 +161,177 @@ builder.Services.AddSingleton<DapperContext>();
 
 #region Repository
 
-builder.Services.AddScoped<IMatchingRepository, MatchingRepository>();
-builder.Services.AddScoped<IChatRepository, ChatRepository>();
+builder.Services.AddScoped<
+    IMatchingRepository,
+    MatchingRepository>();
+
+builder.Services.AddScoped<
+    IChatRepository,
+    ChatRepository>();
 
 #endregion
 
 #region OpenAI / FitBot
 
 builder.Services.Configure<OpenAiOptions>(
-    builder.Configuration.GetSection("OpenAI")
-);
+    builder.Configuration.GetSection("OpenAI"));
 
-builder.Services.AddHttpClient<IOpenAiFitnessService, OpenAiFitnessService>(client =>
-{
-    client.Timeout = TimeSpan.FromSeconds(45);
-});
+builder.Services.AddHttpClient<
+    IOpenAiFitnessService,
+    OpenAiFitnessService>(
+    client =>
+    {
+        client.Timeout =
+            TimeSpan.FromSeconds(45);
+    });
 
 #endregion
 
-#region JWT
+#region JWT Configuration
 
-var jwtSettings = builder.Configuration.GetSection("JwtSettings");
+var jwtSettings =
+    builder.Configuration.GetSection(
+        "JwtSettings");
 
-var key = jwtSettings["Key"];
-var issuer = jwtSettings["Issuer"];
-var audience = jwtSettings["Audience"];
+var jwtKey =
+    jwtSettings["Key"];
 
-if (string.IsNullOrWhiteSpace(key))
+var jwtIssuer =
+    jwtSettings["Issuer"];
+
+var jwtAudience =
+    jwtSettings["Audience"];
+
+if (string.IsNullOrWhiteSpace(jwtKey))
 {
-    throw new Exception("JWT Key is missing in appsettings.json. Expected JwtSettings:Key");
+    throw new InvalidOperationException(
+        "JwtSettings:Key configuration is missing.");
 }
 
-if (string.IsNullOrWhiteSpace(issuer))
+if (string.IsNullOrWhiteSpace(jwtIssuer))
 {
-    throw new Exception("JWT Issuer is missing in appsettings.json. Expected JwtSettings:Issuer");
+    throw new InvalidOperationException(
+        "JwtSettings:Issuer configuration is missing.");
 }
 
-if (string.IsNullOrWhiteSpace(audience))
+if (string.IsNullOrWhiteSpace(jwtAudience))
 {
-    throw new Exception("JWT Audience is missing in appsettings.json. Expected JwtSettings:Audience");
+    throw new InvalidOperationException(
+        "JwtSettings:Audience configuration is missing.");
 }
+
+#endregion
+
+#region Authentication
 
 builder.Services
     .AddAuthentication(options =>
     {
-        options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-        options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-        options.DefaultScheme = JwtBearerDefaults.AuthenticationScheme;
+        options.DefaultAuthenticateScheme =
+            JwtBearerDefaults.AuthenticationScheme;
+
+        options.DefaultChallengeScheme =
+            JwtBearerDefaults.AuthenticationScheme;
+
+        options.DefaultScheme =
+            JwtBearerDefaults.AuthenticationScheme;
     })
     .AddJwtBearer(options =>
     {
-        options.RequireHttpsMetadata = false;
+        /*
+         * Keep claim names exactly as IdentityService
+         * creates them.
+         *
+         * Example:
+         * sub
+         * role
+         */
+        options.MapInboundClaims = false;
+
         options.SaveToken = true;
 
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(
-                Encoding.UTF8.GetBytes(key)
-            ),
-
-            ValidateIssuer = true,
-            ValidIssuer = issuer,
-
-            ValidateAudience = true,
-            ValidAudience = audience,
-
-            ValidateLifetime = true,
-            ClockSkew = TimeSpan.Zero
-        };
-
-        options.Events = new JwtBearerEvents
-        {
-            OnAuthenticationFailed = context =>
+        options.TokenValidationParameters =
+            new TokenValidationParameters
             {
-                Console.WriteLine("JWT Authentication Failed:");
-                Console.WriteLine(context.Exception.Message);
-                return Task.CompletedTask;
-            },
+                ValidateIssuerSigningKey = true,
 
-            OnTokenValidated = context =>
+                IssuerSigningKey =
+                    new SymmetricSecurityKey(
+                        Encoding.UTF8.GetBytes(
+                            jwtKey)),
+
+                ValidateIssuer = true,
+
+                ValidIssuer =
+                    jwtIssuer,
+
+                ValidateAudience = true,
+
+                ValidAudience =
+                    jwtAudience,
+
+                ValidateLifetime = true,
+
+                ClockSkew =
+                    TimeSpan.Zero,
+
+                NameClaimType =
+                    "sub",
+
+                RoleClaimType =
+                    "role"
+            };
+
+        /*
+         * SignalR sends its JWT through the
+         * access_token query parameter during
+         * WebSocket/SSE negotiation.
+         */
+        options.Events =
+            new JwtBearerEvents
             {
-                Console.WriteLine("JWT Token Validated Successfully");
-                return Task.CompletedTask;
-            },
-
-            OnMessageReceived = context =>
-            {
-                var accessToken = context.Request.Query["access_token"];
-                var path = context.HttpContext.Request.Path;
-
-                if (!string.IsNullOrWhiteSpace(accessToken) &&
-                    path.StartsWithSegments("/chatHub"))
+                OnMessageReceived = context =>
                 {
-                    context.Token = accessToken;
+                    var accessToken =
+                        context.Request
+                            .Query["access_token"];
+
+                    var path =
+                        context.HttpContext
+                            .Request.Path;
+
+                    if (
+                        !string.IsNullOrWhiteSpace(
+                            accessToken)
+                        &&
+                        path.StartsWithSegments(
+                            "/chatHub")
+                    )
+                    {
+                        context.Token =
+                            accessToken;
+                    }
+
+                    return Task.CompletedTask;
+                },
+
+                OnAuthenticationFailed = context =>
+                {
+                    var logger =
+                        context.HttpContext
+                            .RequestServices
+                            .GetRequiredService<
+                                ILoggerFactory>()
+                            .CreateLogger(
+                                "JwtAuthentication");
+
+                    logger.LogWarning(
+                        context.Exception,
+                        "JWT authentication failed.");
+
+                    return Task.CompletedTask;
                 }
-
-                return Task.CompletedTask;
-            },
-
-            OnChallenge = context =>
-            {
-                Console.WriteLine("JWT Challenge Error:");
-                Console.WriteLine(context.Error);
-                Console.WriteLine(context.ErrorDescription);
-                return Task.CompletedTask;
-            }
-        };
+            };
     });
 
 builder.Services.AddAuthorization();
@@ -207,46 +340,342 @@ builder.Services.AddAuthorization();
 
 #region CORS
 
+/*
+ * SignalR requires credentials.
+ *
+ * Because of AllowCredentials(), we CANNOT use:
+ *
+ * AllowAnyOrigin()
+ *
+ * So we validate allowed origins instead.
+ */
+
+var configuredOrigins =
+    builder.Configuration
+        .GetSection("Cors:AllowedOrigins")
+        .Get<string[]>()
+    ?? Array.Empty<string>();
+
+var normalizedOrigins =
+    configuredOrigins
+        .Where(origin =>
+            !string.IsNullOrWhiteSpace(origin))
+        .Select(origin =>
+            origin.Trim().TrimEnd('/'))
+        .ToHashSet(
+            StringComparer.OrdinalIgnoreCase);
+
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowFrontend", policy =>
-    {
-        policy
-            .WithOrigins(
-                "https://localhost:7250",
-                "http://localhost:3000",
-                "https://localhost:3000"
-            )
-            .AllowAnyHeader()
-            .AllowAnyMethod()
-            .AllowCredentials();
-    });
+    options.AddPolicy(
+        "AllowFrontend",
+        policy =>
+        {
+            policy
+                .SetIsOriginAllowed(origin =>
+                {
+                    if (
+                        string.IsNullOrWhiteSpace(
+                            origin))
+                    {
+                        return false;
+                    }
+
+                    var normalizedOrigin =
+                        origin.Trim()
+                            .TrimEnd('/');
+
+                    /*
+                     * Explicit origins from
+                     * appsettings.json.
+                     */
+                    if (
+                        normalizedOrigins.Contains(
+                            normalizedOrigin))
+                    {
+                        return true;
+                    }
+
+                    if (
+                        !Uri.TryCreate(
+                            origin,
+                            UriKind.Absolute,
+                            out var uri))
+                    {
+                        return false;
+                    }
+
+                    /*
+                     * Local development.
+                     */
+                    if (
+                        uri.Host.Equals(
+                            "localhost",
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        return
+                            uri.Scheme.Equals(
+                                "http",
+                                StringComparison.OrdinalIgnoreCase)
+                            ||
+                            uri.Scheme.Equals(
+                                "https",
+                                StringComparison.OrdinalIgnoreCase);
+                    }
+
+                    /*
+                     * Vercel production and preview
+                     * deployments.
+                     */
+                    if (
+                        uri.Scheme.Equals(
+                            "https",
+                            StringComparison.OrdinalIgnoreCase)
+                        &&
+                        uri.Host.EndsWith(
+                            ".vercel.app",
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+
+                    return false;
+                })
+                .AllowAnyHeader()
+                .AllowAnyMethod()
+                .AllowCredentials();
+        });
 });
+
+#endregion
+
+#region Health Checks
+
+builder.Services.AddHealthChecks();
 
 #endregion
 
 var app = builder.Build();
 
-#region Middleware
+#region Routing
 
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
-
-app.UseHttpsRedirection();
+/*
+ * SmarterASP / IIS handles HTTPS.
+ *
+ * Do NOT use:
+ *
+ * app.UseHttpsRedirection();
+ */
 
 app.UseRouting();
+
+#endregion
+
+#region Swagger Password Protection
+
+/*
+ * Protects:
+ *
+ * /swagger
+ * /swagger/index.html
+ * /swagger/v1/swagger.json
+ * Swagger CSS/JS files
+ *
+ * It does NOT protect /api endpoints.
+ */
+
+app.Use(async (context, next) =>
+{
+    if (
+        !context.Request.Path
+            .StartsWithSegments("/swagger"))
+    {
+        await next();
+        return;
+    }
+
+    var authorizationHeader =
+        context.Request.Headers
+            .Authorization
+            .ToString();
+
+    if (
+        !string.IsNullOrWhiteSpace(
+            authorizationHeader)
+        &&
+        authorizationHeader.StartsWith(
+            "Basic ",
+            StringComparison.OrdinalIgnoreCase))
+    {
+        try
+        {
+            var encodedCredentials =
+                authorizationHeader[
+                    "Basic ".Length..
+                ].Trim();
+
+            var credentialBytes =
+                Convert.FromBase64String(
+                    encodedCredentials);
+
+            var credentials =
+                Encoding.UTF8.GetString(
+                    credentialBytes);
+
+            var separatorIndex =
+                credentials.IndexOf(':');
+
+            if (separatorIndex > 0)
+            {
+                var suppliedUsername =
+                    credentials[
+                        ..separatorIndex];
+
+                var suppliedPassword =
+                    credentials[
+                        (separatorIndex + 1)..];
+
+                var usernameMatches =
+                    SecureEquals(
+                        suppliedUsername,
+                        swaggerUsername);
+
+                var passwordMatches =
+                    SecureEquals(
+                        suppliedPassword,
+                        swaggerPassword);
+
+                if (
+                    usernameMatches &&
+                    passwordMatches)
+                {
+                    await next();
+                    return;
+                }
+            }
+        }
+        catch (FormatException)
+        {
+            /*
+             * Invalid Base64 auth header.
+             */
+        }
+    }
+
+    context.Response.Headers
+        .WWWAuthenticate =
+        "Basic realm=\"MeetYourBuddy Swagger\", charset=\"UTF-8\"";
+
+    context.Response.StatusCode =
+        StatusCodes.Status401Unauthorized;
+
+    await context.Response.WriteAsync(
+        "Swagger authentication required.");
+});
+
+#endregion
+
+#region Swagger Middleware
+
+/*
+ * Keep Swagger enabled while we deploy/test.
+ * Password middleware above protects it.
+ */
+
+app.UseSwagger();
+
+app.UseSwaggerUI(options =>
+{
+    /*
+     * Relative URL is important because the
+     * service will be hosted at:
+     *
+     * /chat
+     */
+    options.SwaggerEndpoint(
+        "./v1/swagger.json",
+        "Chat Service API v1");
+
+    options.DocumentTitle =
+        "MeetYourBuddy - Chat API";
+
+    options.DisplayRequestDuration();
+
+    options.EnableDeepLinking();
+});
+
+#endregion
+
+#region CORS / Authentication
+
+/*
+ * CORS needs to run before authentication
+ * for frontend/API requests.
+ */
 
 app.UseCors("AllowFrontend");
 
 app.UseAuthentication();
+
 app.UseAuthorization();
 
+#endregion
+
+#region Endpoints
+
 app.MapControllers();
-app.MapHub<ChatHub>("/chatHub");
+
+/*
+ * SignalR endpoint.
+ *
+ * Production URL:
+ *
+ * https://meetyourbuddy-001-site1.ctempurl.com/chat/chatHub
+ */
+
+app.MapHub<ChatHub>("/chatHub")
+    .RequireCors("AllowFrontend");
+
+/*
+ * Public health endpoint.
+ *
+ * Production:
+ *
+ * /chat/health
+ */
+
+app.MapHealthChecks("/health")
+    .AllowAnonymous();
 
 #endregion
 
 app.Run();
+
+#region Helper Methods
+
+static bool SecureEquals(
+    string suppliedValue,
+    string expectedValue)
+{
+    var suppliedBytes =
+        Encoding.UTF8.GetBytes(
+            suppliedValue);
+
+    var expectedBytes =
+        Encoding.UTF8.GetBytes(
+            expectedValue);
+
+    if (
+        suppliedBytes.Length !=
+        expectedBytes.Length)
+    {
+        return false;
+    }
+
+    return CryptographicOperations
+        .FixedTimeEquals(
+            suppliedBytes,
+            expectedBytes);
+}
+
+#endregion

@@ -1,9 +1,14 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+	  <ServerGarbageCollection>false</ServerGarbageCollection>
+	  <AspNetCoreHostingModel>OutOfProcess</AspNetCoreHostingModel>
+	  <RuntimeIdentifier>win-x86</RuntimeIdentifier>
+	  <SelfContained>true</SelfContained>
+    <UserSecretsId>533523a0-7dbe-4921-bde2-ad3377ef21c9</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>

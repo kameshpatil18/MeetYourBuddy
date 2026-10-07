@@ -6,14 +6,17 @@ namespace IdentityService.Persistence
 {
     public class DapperContext
     {
-        private readonly IConfiguration _configuration;
+        private readonly string _connectionString;
 
         public DapperContext(IConfiguration configuration)
         {
-            _configuration = configuration;
+            _connectionString =
+                configuration.GetConnectionString("DefaultConnection")
+                ?? throw new InvalidOperationException(
+                    "ConnectionStrings:DefaultConnection is not configured.");
         }
 
         public IDbConnection CreateConnection()
-            => new SqlConnection(_configuration.GetConnectionString("DefaultConnection"));
+            => new SqlConnection(_connectionString);
     }
 }

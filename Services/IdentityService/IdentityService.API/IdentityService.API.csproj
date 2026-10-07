@@ -6,6 +6,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>5f78a725-eee2-42e4-a2e5-060b5157bdaf</UserSecretsId>
     <DockerfileContext>..\..\..</DockerfileContext>
+	  <ServerGarbageCollection>false</ServerGarbageCollection>
+	  <AspNetCoreHostingModel>OutOfProcess</AspNetCoreHostingModel>
   </PropertyGroup>
 
   <ItemGroup>
@@ -22,5 +24,6 @@
     <ProjectReference Include="..\..\..\IdentityService.Infrastructure\IdentityService.Infrastructure.csproj" />
     <ProjectReference Include="..\..\..\IdentityService.Persistence\IdentityService.Persistence.csproj" />
   </ItemGroup>
+
 
 </Project>

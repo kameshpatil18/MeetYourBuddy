@@ -11,8 +11,14 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
+#region Controllers
+
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
+
+#endregion
+
+#region Configuration
 
 builder.Services.Configure<JwtSettings>(
     builder.Configuration.GetSection("JwtSettings"));
@@ -20,33 +26,139 @@ builder.Services.Configure<JwtSettings>(
 builder.Services.Configure<EmailSettings>(
     builder.Configuration.GetSection("EmailSettings"));
 
-builder.Services.AddMediatR(cfg =>
-{
-    cfg.RegisterServicesFromAssembly(typeof(RegisterUserCommand).Assembly);
-});
-
-builder.Services.AddSingleton<DapperContext>();
-builder.Services.AddScoped<IUserRepository, UserRepository>();
-builder.Services.AddScoped<IJwtTokenGenerator, JwtTokenGenerator>();
-builder.Services.AddScoped<IEmailService, EmailService>();
-
 var jwtSettings = builder.Configuration
     .GetSection("JwtSettings")
-    .Get<JwtSettings>()!;
+    .Get<JwtSettings>()
+    ?? throw new InvalidOperationException(
+        "JwtSettings configuration is missing.");
+
+if (string.IsNullOrWhiteSpace(jwtSettings.Key))
+{
+    throw new InvalidOperationException(
+        "JwtSettings:Key configuration is missing.");
+}
+
+if (string.IsNullOrWhiteSpace(jwtSettings.Issuer))
+{
+    throw new InvalidOperationException(
+        "JwtSettings:Issuer configuration is missing.");
+}
+
+if (string.IsNullOrWhiteSpace(jwtSettings.Audience))
+{
+    throw new InvalidOperationException(
+        "JwtSettings:Audience configuration is missing.");
+}
 
 var key = Encoding.UTF8.GetBytes(jwtSettings.Key);
 
+#endregion
+
+#region MediatR
+
+builder.Services.AddMediatR(cfg =>
+{
+    cfg.RegisterServicesFromAssembly(
+        typeof(RegisterUserCommand).Assembly);
+});
+
+#endregion
+
+#region Dependencies
+
+builder.Services.AddSingleton<DapperContext>();
+
+builder.Services.AddScoped<
+    IUserRepository,
+    UserRepository>();
+
+builder.Services.AddScoped<
+    IJwtTokenGenerator,
+    JwtTokenGenerator>();
+
+builder.Services.AddScoped<
+    IEmailService,
+    EmailService>();
+
+#endregion
+
 #region CORS
+
+var configuredOrigins = builder.Configuration
+    .GetSection("Cors:AllowedOrigins")
+    .Get<string[]>()
+    ?? Array.Empty<string>();
+
+var normalizedOrigins = configuredOrigins
+    .Where(origin =>
+        !string.IsNullOrWhiteSpace(origin))
+    .Select(origin =>
+        origin.Trim().TrimEnd('/'))
+    .ToHashSet(
+        StringComparer.OrdinalIgnoreCase);
 
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
     {
         policy
-            .WithOrigins(
-                "http://localhost:3000",
-                "https://localhost:3000"
-            )
+            .SetIsOriginAllowed(origin =>
+            {
+                if (string.IsNullOrWhiteSpace(origin))
+                {
+                    return false;
+                }
+
+                var normalizedOrigin =
+                    origin.Trim().TrimEnd('/');
+
+                // Explicitly configured origins.
+                if (normalizedOrigins.Contains(
+                    normalizedOrigin))
+                {
+                    return true;
+                }
+
+                if (!Uri.TryCreate(
+                        normalizedOrigin,
+                        UriKind.Absolute,
+                        out var uri))
+                {
+                    return false;
+                }
+
+                // Local Next.js frontend.
+                if (uri.Host.Equals(
+                        "localhost",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return
+                        uri.Scheme.Equals(
+                            "http",
+                            StringComparison.OrdinalIgnoreCase)
+                        ||
+                        uri.Scheme.Equals(
+                            "https",
+                            StringComparison.OrdinalIgnoreCase);
+                }
+
+                // Temporary support for Vercel production
+                // and preview deployments.
+                if (
+                    uri.Scheme.Equals(
+                        "https",
+                        StringComparison.OrdinalIgnoreCase)
+                    &&
+                    uri.Host.EndsWith(
+                        ".vercel.app",
+                        StringComparison.OrdinalIgnoreCase)
+                )
+                {
+                    return true;
+                }
+
+                return false;
+            })
             .AllowAnyHeader()
             .AllowAnyMethod();
     });
@@ -56,28 +168,39 @@ builder.Services.AddCors(options =>
 
 #region Authentication
 
-builder.Services.AddAuthentication(options =>
-{
-    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-})
-.AddJwtBearer(options =>
-{
-    options.RequireHttpsMetadata = false;
-    options.SaveToken = true;
-
-    options.TokenValidationParameters = new TokenValidationParameters
+builder.Services
+    .AddAuthentication(options =>
     {
-        ValidateIssuer = true,
-        ValidateAudience = true,
-        ValidateIssuerSigningKey = true,
-        ValidateLifetime = true,
-        ValidIssuer = jwtSettings.Issuer,
-        ValidAudience = jwtSettings.Audience,
-        IssuerSigningKey = new SymmetricSecurityKey(key),
-        ClockSkew = TimeSpan.Zero
-    };
-});
+        options.DefaultAuthenticateScheme =
+            JwtBearerDefaults.AuthenticationScheme;
+
+        options.DefaultChallengeScheme =
+            JwtBearerDefaults.AuthenticationScheme;
+    })
+    .AddJwtBearer(options =>
+    {
+        options.SaveToken = true;
+
+        options.TokenValidationParameters =
+            new TokenValidationParameters
+            {
+                ValidateIssuer = true,
+                ValidateAudience = true,
+                ValidateIssuerSigningKey = true,
+                ValidateLifetime = true,
+
+                ValidIssuer =
+                    jwtSettings.Issuer,
+
+                ValidAudience =
+                    jwtSettings.Audience,
+
+                IssuerSigningKey =
+                    new SymmetricSecurityKey(key),
+
+                ClockSkew = TimeSpan.Zero
+            };
+    });
 
 builder.Services.AddAuthorization();
 
@@ -87,37 +210,61 @@ builder.Services.AddAuthorization();
 
 builder.Services.AddSwaggerGen(options =>
 {
-    options.SwaggerDoc("v1", new OpenApiInfo
-    {
-        Title = "Identity Service API",
-        Version = "v1"
-    });
-
-    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
-    {
-        Name = "Authorization",
-        Type = SecuritySchemeType.Http,
-        Scheme = "bearer",
-        BearerFormat = "JWT",
-        In = ParameterLocation.Header,
-        Description = "Enter Bearer token"
-    });
-
-    options.AddSecurityRequirement(new OpenApiSecurityRequirement
-    {
+    options.SwaggerDoc(
+        "v1",
+        new OpenApiInfo
         {
-            new OpenApiSecurityScheme
+            Title =
+                "MeetYourBuddy Identity Service API",
+
+            Version = "v1"
+        });
+
+    options.AddSecurityDefinition(
+        "Bearer",
+        new OpenApiSecurityScheme
+        {
+            Name = "Authorization",
+
+            Type =
+                SecuritySchemeType.Http,
+
+            Scheme = "bearer",
+
+            BearerFormat = "JWT",
+
+            In =
+                ParameterLocation.Header,
+
+            Description =
+                "Enter your JWT token"
+        });
+
+    options.AddSecurityRequirement(
+        new OpenApiSecurityRequirement
+        {
             {
-                Reference = new OpenApiReference
+                new OpenApiSecurityScheme
                 {
-                    Type = ReferenceType.SecurityScheme,
-                    Id = "Bearer"
-                }
-            },
-            new List<string>()
-        }
-    });
+                    Reference =
+                        new OpenApiReference
+                        {
+                            Type =
+                                ReferenceType.SecurityScheme,
+
+                            Id = "Bearer"
+                        }
+                },
+                Array.Empty<string>()
+            }
+        });
 });
+
+#endregion
+
+#region Health Checks
+
+builder.Services.AddHealthChecks();
 
 #endregion
 
@@ -125,20 +272,39 @@ var app = builder.Build();
 
 #region Middleware
 
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+/*
+ * IIS / SmarterASP terminates HTTPS,
+ * so HTTPS redirection is intentionally omitted.
+ */
 
-app.UseHttpsRedirection();
+app.UseRouting();
 
+/*
+ * IMPORTANT:
+ * CORS must execute after routing and before
+ * authentication / authorization.
+ */
 app.UseCors("AllowFrontend");
 
 app.UseAuthentication();
+
 app.UseAuthorization();
 
+/*
+ * Keep Swagger enabled while deploying/testing.
+ */
+app.UseSwagger();
+
+app.UseSwaggerUI(options =>
+{
+    options.SwaggerEndpoint(
+        "/swagger/v1/swagger.json",
+        "Identity Service API v1");
+});
+
 app.MapControllers();
+
+app.MapHealthChecks("/health");
 
 #endregion
 
