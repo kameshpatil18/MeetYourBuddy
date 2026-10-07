@@ -9,7 +9,7 @@ import {
   type FormEvent,
 } from 'react'
 
-import { useSearchParams, useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import * as signalR from '@microsoft/signalr'
 
 /* =========================================================
@@ -407,8 +407,7 @@ function extractGameFromSignal(
 ========================================================= */
 
 export default function BuddyGamesPage() {
-  const router = useRouter()
-  const searchParams = useSearchParams()
+const router = useRouter()
 
   const hubRef =
     useRef<signalR.HubConnection | null>(null)
@@ -466,21 +465,29 @@ export default function BuddyGamesPage() {
   ======================================================= */
 
   useEffect(() => {
-    const buddyId =
-      searchParams.get('buddyId') ||
-      searchParams.get('userId')
+  if (typeof window === 'undefined') {
+    return
+  }
 
-    const buddyName =
-      searchParams.get('buddyName') || ''
+  const params = new URLSearchParams(
+    window.location.search,
+  )
 
-    if (buddyId) {
-      setOpponentUserId(buddyId)
-    }
+  const buddyId =
+    params.get('buddyId') ||
+    params.get('userId')
 
-    if (buddyName) {
-      setOpponentName(buddyName)
-    }
-  }, [searchParams])
+  const buddyName =
+    params.get('buddyName') || ''
+
+  if (buddyId) {
+    setOpponentUserId(buddyId)
+  }
+
+  if (buddyName) {
+    setOpponentName(buddyName)
+  }
+}, [])
 
   useEffect(() => {
     setCurrentUserId(getUserIdFromToken())
